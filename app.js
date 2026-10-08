@@ -8,22 +8,40 @@ const CREDIT = Object.freeze({
   reel: 'https://www.instagram.com/reel/DeKs-qdvu4l/',
 });
 
+// `why` is what she says when he fails that step. `said: true` means her words
+// from the reel transcript, near verbatim; otherwise it is a line built from
+// the board for a step where she doesn't give a reason out loud.
 const STEPS = Object.freeze([
-  { q: 'Are you attracted to him?', pass: 'yes' },
-  { q: 'Is he the hottest man you have ever seen?', pass: 'no' },
-  { q: 'Did he plan the date?', pass: 'yes', rescue: { q: 'Did he ask for your input?', pass: 'yes' } },
-  { q: 'Did he pay the check?', pass: 'yes', rescue: { q: 'Did he offer?', pass: 'yes' } },
-  { q: 'Did he make you laugh?', pass: 'yes', rescue: { q: 'Was he nice to the wait staff?', pass: 'yes' } },
-  { q: 'Is he employed?', pass: 'yes', rescue: { q: 'Did he just sell his tech company?', pass: 'yes' } },
-  { q: 'Did he text you after the date?', pass: 'yes', rescue: { q: 'Did he call?', pass: 'yes' } },
+  { q: 'Are you attracted to him?', pass: 'yes',
+    why: { text: 'We want to be attracted.', said: true } },
+  { q: 'Is he the hottest man you have ever seen?', pass: 'no',
+    why: { text: 'It’s going to lead you to heartbreak. He don’t have to be the hottest guy in the world, okay?', said: true } },
+  { q: 'Did he plan the date?', pass: 'yes',
+    rescue: { q: 'Did he ask for your input?', pass: 'yes' },
+    why: { text: 'He just had you plan the whole thing? That’s going to go ahead and be a no for me, okay?', said: true } },
+  { q: 'Did he pay the check?', pass: 'yes',
+    rescue: { q: 'Did he offer?', pass: 'yes' },
+    why: { text: 'Some of you women, you have a problem with people paying for stuff. Fine. But he didn’t even offer.', said: false } },
+  { q: 'Did he make you laugh?', pass: 'yes',
+    rescue: { q: 'Was he nice to the wait staff?', pass: 'yes' },
+    why: { text: 'Not making you laugh is okay. Not being nice to the waitstaff? That is a hard no.', said: true } },
+  { q: 'Is he employed?', pass: 'yes',
+    rescue: { q: 'Did he just sell his tech company?', pass: 'yes' },
+    why: { text: 'No job, and he did not just sell a tech company. That’s a no for me, okay?', said: false } },
+  { q: 'Did he text you after the date?', pass: 'yes',
+    rescue: { q: 'Did he call?', pass: 'yes' },
+    why: { text: 'If he did neither of those, then it’s going to go ahead and be a no for me.', said: true } },
   {
     q: 'Is he emotionally available?', pass: 'yes',
     rescue: {
       q: 'Is he in therapy?', pass: 'yes',
-      note: 'If you get to this point and the therapy is what is holding you up, that is a call you make for yourself.',
+      note: 'If we get to this point and the therapy is what’s holding us up, we have to decide on ourselves.',
     },
+    why: { text: 'Not emotionally available, and not in therapy about it. It’s going to go ahead and be a no.', said: false },
   },
 ]);
+
+const YES_LINE = 'If this man has done all this, we are definitely giving him a chance, okay? I’m glad we sorted that out.';
 
 const VERDICT = Object.freeze({ NO: "It's a NO for me", YES: 'Give him a chance' });
 const PEEL_MS = 560;
@@ -143,11 +161,13 @@ function renderResult(pos) {
     const main = STEPS[pos.failedAt];
     const rescueFailed = main.rescue && pos.rescued === false;
     const html = rescueFailed
-      ? `He fell at <strong>${main.q}</strong> Then he missed the rescue. <strong>${main.rescue.q}</strong> No hard feelings.`
-      : `He fell at <strong>${main.q}</strong> No hard feelings.`;
+      ? `He fell at <strong>${main.q}</strong> and missed the rescue: <strong>${main.rescue.q}</strong>`
+      : `He fell at <strong>${main.q}</strong>`;
     parts.push(el('p', { class: 'fell', html }));
+    parts.push(whyBlock(main.why));
   } else {
     parts.push(el('p', { class: 'fell' }, ['He made it through all eight.']));
+    parts.push(whyBlock({ text: YES_LINE, said: true }));
     const last = state.history[state.history.length - 1];
     const viaTherapy = state.history.length > 0 && usedTherapyRescue(state.history);
     if (viaTherapy && last) {
@@ -165,6 +185,13 @@ function renderResult(pos) {
     el('button', { class: 'btn quiet', type: 'button', onclick: restart }, [el('span', { html: ICON_RESTART }), 'Start over']),
   ]));
   return parts;
+}
+
+function whyBlock(why) {
+  if (!why.said) return el('p', { class: 'quote plain' }, [why.text]);
+  return el('blockquote', { class: 'quote' }, [
+    why.text, ' ', el('cite', {}, [`— ${CREDIT.name.split(' ')[0]}, in the reel`]),
+  ]);
 }
 
 function usedTherapyRescue(history) {
@@ -266,7 +293,9 @@ function restart() {
 function shareText() {
   const pos = positionAfter(state.history);
   const verdict = pos.verdict === 'NO' ? VERDICT.NO : VERDICT.YES;
-  const where = pos.verdict === 'NO' ? `\nHe fell at: ${STEPS[pos.failedAt].q}` : '\nHe made it through all eight.';
+  const where = pos.verdict === 'NO'
+    ? `\nHe fell at: ${STEPS[pos.failedAt].q}\n“${STEPS[pos.failedAt].why.text}”`
+    : `\nHe made it through all eight.\n“${YES_LINE}”`;
   return `Should you give this man a chance? I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}\n\n${location.href}`;
 }
 
