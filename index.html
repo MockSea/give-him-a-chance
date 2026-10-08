@@ -4,38 +4,48 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Should you give this man a chance?</title>
-  <meta name="description" content="Sherita Janielle's flowchart, one question at a time. Eight questions, a few rescue questions, two verdicts.">
+  <meta name="description" content="Sherita Janielle's flowchart as a swipe deck. Eight questions, a few rescue questions, two verdicts. Swipe right for yes, left for no.">
   <meta name="theme-color" content="#ec8db1">
   <meta name="color-scheme" content="light">
   <meta property="og:title" content="Should you give this man a chance?">
-  <meta property="og:description" content="Run him through Sherita Janielle's flowchart. Eight questions, a few rescue questions, two verdicts.">
+  <meta property="og:description" content="Run him through Sherita Janielle's flowchart. Swipe right for yes, left for no. Eight questions, a few rescue questions, two verdicts.">
   <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%23f7acc7'/%3E%3Ctext x='32' y='46' font-family='Arial, sans-serif' font-size='40' font-weight='800' text-anchor='middle' fill='%231733b8'%3E%3F%3C/text%3E%3C/svg%3E">
   <link rel="preload" href="fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <a class="skip" href="#sheet">Skip to the question</a>
+  <a class="skip" href="#card">Skip to the question</a>
 
-  <header class="bar" id="bar" hidden>
-    <button class="back" id="back" type="button">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
-      <span>Back</span>
-    </button>
-    <ol class="marks" id="marks" aria-label="Progress"></ol>
-  </header>
+  <div class="app" id="app" data-screen="start">
+    <div class="col">
+      <main class="deck" id="deck">
+        <div class="under under-2" aria-hidden="true"></div>
+        <div class="under under-1" aria-hidden="true"></div>
+        <section class="card start" id="card" tabindex="-1" aria-live="polite"></section>
+      </main>
 
-  <main class="stage" id="stage">
-    <div class="stack" aria-hidden="true">
-      <div class="under under-2"></div>
-      <div class="under under-1"></div>
+      <div class="dock" id="dock">
+        <button class="act rewind" id="back" type="button" disabled>
+          <span class="disc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/></svg></span>
+          <span class="word">Back</span>
+        </button>
+        <button class="act no" id="act-no" type="button">
+          <span class="disc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></span>
+          <span class="word">No</span>
+        </button>
+        <button class="act yes" id="act-yes" type="button">
+          <span class="disc"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z"/></svg></span>
+          <span class="word">Yes</span>
+        </button>
+      </div>
+      <p class="keys" aria-hidden="true">Drag the card, or press <kbd>Y</kbd> <kbd>N</kbd> <kbd>Backspace</kbd></p>
     </div>
-    <section class="sheet" id="sheet" tabindex="-1" aria-live="polite"></section>
-  </main>
+  </div>
 
   <noscript>
     <div class="noscript">
-      <p>This needs JavaScript to turn the pages. The flowchart itself is by <a href="https://www.instagram.com/sheritajanielle/">Sherita Janielle (@sheritajanielle)</a>, in <a href="https://www.instagram.com/reel/DeKs-qdvu4l/">this reel</a>.</p>
+      <p>This needs JavaScript to deal the cards. The flowchart itself is by <a href="https://www.instagram.com/sheritajanielle/">Sherita Janielle (@sheritajanielle)</a>, in <a href="https://www.instagram.com/reel/DeKs-qdvu4l/">this reel</a>.</p>
     </div>
   </noscript>
 

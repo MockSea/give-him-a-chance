@@ -1,39 +1,37 @@
 # Design notes
 
-## What it is
+## The world
 
-Sherita Janielle's "Should I give this man a chance?" whiteboard, served one question at a time. The page is her stack of pink construction-paper sheets: each answer peels the top sheet off and the next question is what was underneath. It deliberately avoids the pastel card-quiz with a progress bar and a confetti result.
+A deck of profile cards on Sherita's pink ground. The palette and ink are the reel's: bubblegum pink paper, a marker set of blue, green and red, and one type family (Bricolage Grotesque, self-hosted). The form is a dating app's swipe deck: one card at a time, two more peeking from underneath, a dock of round discs below.
 
-## World
+## Tokens
 
-- Ground: bubblegum pink edge to edge (`--ground`). Sheets are a lighter pink (`--paper`), with two rotated sheets peeking out underneath.
-- Ink is the marker set from the board: questions in marker blue, Yes in green, No in red, the verdict boxed in red or green and rotated two degrees like a hand-drawn box.
-- Rescue questions arrive on a white sheet (the board showing through the paper) with her line "Every no doesn't mean it's over."
-- One type family, Bricolage Grotesque (variable, self-hosted, OFL). Display weight for questions and verdicts, text weight for everything else.
-- Controls are sharp-cornered like cut paper. No radius anywhere.
+- `--ground #ec8db1`, the page. `--paper #f7acc7` the card. `--paper-under #f09dbd` and `--ground-deep #d9759d` the cards underneath. `--board #f8f9f7` the white rescue card.
+- `--ink #17111a`, `--ink-soft #7a2a4e` for secondary text. `--blue #1733b8` questions and title, `--green #06552b` yes, `--red #9e0b27` no.
+- Cards: 16px radius, `--card-shadow` (offset 18px, blur 40px, negative spread, plus a tight 2px contact shadow).
+- Motion: `--ease cubic-bezier(.16,1,.3,1)`, fly-off 420ms, snap-back 320ms.
 
-## Motion
+## Cards
 
-One authored motion: the peel. On an answer the current sheet rotates and lifts off the top-left (`cubic-bezier(0.16, 1, 0.3, 1)`, 560ms) while the next sheet settles in beneath it. Back runs the same animation in reverse. `prefers-reduced-motion` swaps both for a plain replace.
+- Start: title in blue with the last two words in ink, the lede, credit line and one full-width Start button at the bottom.
+- Question: eight progress marks across the top (done in ink, current in blue), the question in blue display type a little above centre. Rescue cards are white, question in ink, with her line "Every no doesn't mean it's over." No labels above the question.
+- Stamps: YES (green, top left, tilted -16deg) and NOPE (red, top right, tilted 16deg) inside a 4px border, opacity driven by `--yes` and `--no` as the card moves.
+- Result: the verdict in a rubber-stamp box, rotated -4deg, slamming in from 1.8x scale. Green for yes, red for no. A yes throws eight small hearts out of the stamp once. Her quote is the headline under it; Moxy's one-liner follows in smaller, lighter type behind a dashed rule, signed "— Moxy". Then the tally, a "Change the last answer" link, the credit line, share and restart.
 
-## Result
+## Interaction
 
-The verdict in her words, the question he fell on (and the rescue he missed, if there was one), "No hard feelings", and an itemised tally of every answer. "Send it to the friend" uses the Web Share API and falls back to the clipboard.
+- Pointer events only, no libraries. Pointer down captures the card; move translates it (vertical damped to 35%) and rotates up to 16deg; `--p` on the deck scales the under-card up as the top one leaves.
+- Release past `min(38% of card width, 160px)`, or a flick faster than 0.6px/ms with at least 40px of travel, commits the answer and flies the card off at 28deg. Otherwise it snaps back.
+- The discs, Y / N and Backspace drive the same `swipe()` and `back()` as the drag. Back flies the previous card in from the side its answer went. Backspace works on the result screen too.
+- `prefers-reduced-motion`: no transitions, answers commit immediately, no heart burst.
 
-## Accessibility and craft floor
+## Layout
 
-- All text passes 4.5:1 on its own sheet (ink-soft 5.2, blue 5.3, red 4.6, green 5.0 on pink; higher on the white sheet).
-- Tap targets: choices 76px tall, Start and result buttons 64px, Back 44px.
-- Focus rings in marker blue; selection themed; tap highlight cleared; `theme-color` and `color-scheme` set.
-- The new sheet's heading takes focus so screen readers announce it; the sheet is `aria-live="polite"`.
-- Keyboard: Y, N, and Backspace work on question sheets.
-- No horizontal scroll at 390px (rotated under-sheets are clipped by `overflow-x: clip`).
-- Icons are inline SVG, not emoji.
+- `.app` is `100dvh` with safe-area padding and `overflow: hidden` on the start and question screens, so nothing scrolls at 390x844 or 375x667. `html, body` have `overflow-x: clip`.
+- The column is 440px max; the deck takes the remaining height (capped at 640px on desktop); the dock is a fixed 112px.
+- On the result screen the app releases its height and the page scrolls; the dock and under-cards hide.
+- The keyboard hint shows only on wide pointer-and-hover devices.
 
-## Content fidelity
+## Browser surfaces
 
-Question wording is transcribed from the board in the reel. Question marks are added where the board omits them ("Is he employed", "Did he text you after the date", "Was he nice to the wait staff"). The therapy note on the yes-via-therapy result paraphrases what she says in the audio ("if we get to this point and the therapy is what's holding us up, we have to decide on ourselves").
-
-## Finish review
-
-No finish-reviewer agent exists in the harness this was built in, so the review was an in-thread pass against the craft floor and the direction contract, at 390x844 and 1440x900. One batch of fixes (question size, sheet height, result copy, hover states, stray heading focus ring), one recheck. Verdict: ships.
+Selection is blue on white, focus rings are 3px blue with offset (hidden on programmatically focused headings), tap highlight is off, `color-scheme: light`.

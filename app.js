@@ -11,26 +11,62 @@ const CREDIT = Object.freeze({
 // `why` is what she says when he fails that step. `said: true` means her words
 // from the reel transcript, near verbatim; otherwise it is a line built from
 // the board for a step where she doesn't give a reason out loud.
+// `roast` is Moxy's line for the same step, one picked at random per verdict.
 const STEPS = Object.freeze([
   { q: 'Are you attracted to him?', pass: 'yes',
-    why: { text: 'We want to be attracted.', said: true } },
+    why: { text: 'We want to be attracted.', said: true },
+    roast: [
+      'You can\'t manifest chemistry. You tried. We all saw.',
+      '"He\'s nice on paper" is how you end up living on paper.',
+      'Respectfully, he\'s a coworker now.',
+    ] },
   { q: 'Is he the hottest man you have ever seen?', pass: 'no',
-    why: { text: 'It’s going to lead you to heartbreak. He don’t have to be the hottest guy in the world, okay?', said: true } },
+    why: { text: 'It’s going to lead you to heartbreak. He don’t have to be the hottest guy in the world, okay?', said: true },
+    roast: [
+      'That face has a waitlist and you\'re not first on it.',
+      'Men that pretty already have a girlfriend. It\'s the mirror.',
+      'He\'s already been told he\'s perfect. By several people. This week.',
+    ] },
   { q: 'Did he plan the date?', pass: 'yes',
     rescue: { q: 'Did he ask for your input?', pass: 'yes' },
-    why: { text: 'He just had you plan the whole thing? That’s going to go ahead and be a no for me, okay?', said: true } },
+    why: { text: 'He just had you plan the whole thing? That’s going to go ahead and be a no for me, okay?', said: true },
+    roast: [
+      'You didn\'t go on a date. You ran an event.',
+      'He showed up like a plus-one to his own date.',
+      'Congrats on your new unpaid role as his travel agent.',
+    ] },
   { q: 'Did he pay the check?', pass: 'yes',
     rescue: { q: 'Did he offer?', pass: 'yes' },
-    why: { text: 'Some of you women, you have a problem with people paying for stuff. Fine. But he didn’t even offer.', said: false } },
+    why: { text: 'Some of you women, you have a problem with people paying for stuff. Fine. But he didn’t even offer.', said: false },
+    roast: [
+      'The check came and so did his sudden interest in his phone.',
+      'He reached for his wallet the way people reach for the gym.',
+      'Splitting is fine. Not seeing the check is a lifestyle.',
+    ] },
   { q: 'Did he make you laugh?', pass: 'yes',
     rescue: { q: 'Was he nice to the wait staff?', pass: 'yes' },
-    why: { text: 'Not making you laugh is okay. Not being nice to the waitstaff? That is a hard no.', said: true } },
+    why: { text: 'Not making you laugh is okay. Not being nice to the waitstaff? That is a hard no.', said: true },
+    roast: [
+      'Boring and mean to the server. A two-for-one nobody ordered.',
+      'How he treats the waiter is the trailer. The trailer was bad.',
+      'He didn\'t make you laugh, but he did make the server sigh.',
+    ] },
   { q: 'Is he employed?', pass: 'yes',
     rescue: { q: 'Did he just sell his tech company?', pass: 'yes' },
-    why: { text: 'No job, and he did not just sell a tech company. That’s a no for me, okay?', said: false } },
+    why: { text: 'No job, and he did not just sell a tech company. That’s a no for me, okay?', said: false },
+    roast: [
+      '"Between opportunities" since the Obama administration.',
+      'His startup is a podcast with zero episodes.',
+      'The only thing he\'s acquired is your Netflix password.',
+    ] },
   { q: 'Did he text you after the date?', pass: 'yes',
     rescue: { q: 'Did he call?', pass: 'yes' },
-    why: { text: 'If he did neither of those, then it’s going to go ahead and be a no for me.', said: true } },
+    why: { text: 'If he did neither of those, then it’s going to go ahead and be a no for me.', said: true },
+    roast: [
+      'He\'s not busy. His phone works. You know this.',
+      'Radio silence isn\'t mysterious. It\'s information.',
+      'He\'ll text in three weeks with "hey stranger". Don\'t.',
+    ] },
   {
     q: 'Is he emotionally available?', pass: 'yes',
     rescue: {
@@ -38,25 +74,46 @@ const STEPS = Object.freeze([
       note: 'If we get to this point and the therapy is what’s holding us up, we have to decide on ourselves.',
     },
     why: { text: 'Not emotionally available, and not in therapy about it. It’s going to go ahead and be a no.', said: false },
+    roast: [
+      'He\'s not a fixer-upper. He\'s a teardown.',
+      'You\'d be his therapist, unpaid, with worse hours.',
+      'His emotional range is "idk" to "lol".',
+    ],
   },
 ]);
 
 const YES_LINE = 'If this man has done all this, we are definitely giving him a chance, okay? I’m glad we sorted that out.';
 
+const YES_ROASTS = Object.freeze([
+  'Go. Text the group chat. Then put your phone down.',
+  'Rare find. Do not mention the five-year plan on date two.',
+  'He passed all eight. Check for a pulse, then a ring.',
+]);
+
+const ROASTER = 'Moxy';
+
 const VERDICT = Object.freeze({ NO: "It's a NO for me", YES: 'Give him a chance' });
-const PEEL_MS = 560;
+const FLY_MS = 420;
+const SNAP_MS = 320;
+const SETTLE_MS = 400;
+const MAX_TILT = 16;
+const TILT_DIVISOR = 18;
+const FLICK_SPEED = 0.6; // px per ms
+const FLICK_MIN_DX = 40;
+const STAMP_FULL_AT = 90; // px of drag at which the stamp is fully inked
 
 // State is replaced, never mutated. `history` is the list of answers given so
-// far, in order; the screen is derived from it.
-const initialState = Object.freeze({ screen: 'start', history: Object.freeze([]) });
+// far, in order; the screen is derived from it. `roast` is the line drawn for
+// the current verdict, drawn once per result render.
+const initialState = Object.freeze({ screen: 'start', history: Object.freeze([]), roast: null });
 let state = initialState;
 let animating = false;
 
-const $sheet = document.getElementById('sheet');
-const $bar = document.getElementById('bar');
+const $app = document.getElementById('app');
+const $deck = document.getElementById('deck');
 const $back = document.getElementById('back');
-const $marks = document.getElementById('marks');
-const $stage = document.getElementById('stage');
+const $no = document.getElementById('act-no');
+const $yes = document.getElementById('act-yes');
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -85,6 +142,11 @@ function questionAt(pos) {
   return pos.phase === 'rescue' ? main.rescue : main;
 }
 
+function pickRoast(pos) {
+  const set = pos.verdict === 'YES' ? YES_ROASTS : STEPS[pos.failedAt].roast;
+  return set[Math.floor(Math.random() * set.length)];
+}
+
 // ---- rendering --------------------------------------------------------------
 
 function el(tag, attrs = {}, children = []) {
@@ -99,10 +161,9 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
-const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
-const ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const ICON_SHARE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg>';
 const ICON_RESTART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7"/><path d="M4 4v5h5"/></svg>';
+const ICON_HEART = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z"/></svg>';
 
 function creditLine() {
   return el('p', { class: 'credit', html:
@@ -110,27 +171,32 @@ function creditLine() {
     ` &middot; <a href="${CREDIT.reel}" rel="noopener">watch the reel</a>` });
 }
 
+function marksList(pos) {
+  const step = pos.verdict ? STEPS.length : pos.step;
+  const label = `Question ${Math.min(step + 1, STEPS.length)} of ${STEPS.length}`;
+  return el('ol', { class: 'marks', 'aria-label': label }, STEPS.map((_, i) =>
+    el('li', { class: i < step ? 'done' : i === step ? 'now' : '' })));
+}
+
 function renderStart() {
   return [
     el('h1', { class: 'title', html: 'Should you give this man <em>a chance?</em>' }),
-    el('p', { class: 'lede' }, ['Eight questions, a few rescue questions, two verdicts. She built the flowchart so you don’t have to guess.']),
+    el('p', { class: 'lede' }, ['Eight questions, a few rescue questions, two verdicts. Swipe right for yes, left for no. She built the flowchart so you don’t have to guess.']),
     el('div', { class: 'spacer' }),
     creditLine(),
-    el('button', { class: 'btn', type: 'button', onclick: start }, ['Start']),
+    el('button', { class: 'btn', type: 'button', onclick: start }, ['Start swiping']),
   ];
 }
 
 function renderQuestion(pos) {
   const q = questionAt(pos);
-  const parts = [el('h1', { class: 'q' }, [q.q])];
+  const parts = [marksList(pos), el('div', { class: 'spacer top' }), el('h1', { class: 'q' }, [q.q])];
   if (pos.phase === 'rescue') {
     parts.push(el('p', { class: 'sub' }, ['Every no doesn’t mean it’s over. He gets one rescue question.']));
   }
   parts.push(el('div', { class: 'spacer' }));
-  parts.push(el('div', { class: 'choices' }, [
-    el('button', { class: 'choice yes', type: 'button', onclick: () => answer('yes') }, ['Yes', el('span', { html: ICON_CHECK })]),
-    el('button', { class: 'choice no', type: 'button', onclick: () => answer('no') }, ['No', el('span', { html: ICON_X })]),
-  ]));
+  parts.push(el('div', { class: 'stamp yes', 'aria-hidden': 'true' }, ['Yes']));
+  parts.push(el('div', { class: 'stamp no', 'aria-hidden': 'true' }, ['Nope']));
   return parts;
 }
 
@@ -153,31 +219,35 @@ function tallyList(history) {
   return el('ol', { class: 'tally', 'aria-label': 'Your answers' }, items);
 }
 
-function renderResult(pos) {
-  const isNo = pos.verdict === 'NO';
-  const parts = [el('h1', { class: `verdict ${isNo ? 'no' : 'yes'}` }, [isNo ? VERDICT.NO : VERDICT.YES])];
+function heartBurst() {
+  const hearts = [];
+  for (let i = 0; i < 8; i += 1) {
+    hearts.push(el('span', { style: `--a: ${i * 45}deg; --d: ${i * 40}ms`, html: ICON_HEART }));
+  }
+  return el('div', { class: 'burst', 'aria-hidden': 'true' }, hearts);
+}
 
+function renderResult(pos, s) {
+  const isNo = pos.verdict === 'NO';
+  const parts = [];
+  const verdict = el('h1', { class: `verdict ${isNo ? 'no' : 'yes'}` }, [isNo ? VERDICT.NO : VERDICT.YES]);
   if (isNo) {
-    const main = STEPS[pos.failedAt];
-    const rescueFailed = main.rescue && pos.rescued === false;
-    const html = rescueFailed
-      ? `He fell at <strong>${main.q}</strong> and missed the rescue: <strong>${main.rescue.q}</strong>`
-      : `He fell at <strong>${main.q}</strong>`;
-    parts.push(el('p', { class: 'fell', html }));
-    parts.push(whyBlock(main.why));
+    parts.push(el('div', { class: 'slam' }, [verdict]));
+    parts.push(whyBlock(STEPS[pos.failedAt].why));
   } else {
+    parts.push(el('div', { class: 'slam' }, [heartBurst(), verdict]));
     parts.push(el('p', { class: 'fell' }, ['He made it through all eight.']));
     parts.push(whyBlock({ text: YES_LINE, said: true }));
-    const last = state.history[state.history.length - 1];
-    const viaTherapy = state.history.length > 0 && usedTherapyRescue(state.history);
-    if (viaTherapy && last) {
+    if (usedTherapyRescue(s.history)) {
       parts.push(el('blockquote', { class: 'quote' }, [
         STEPS[7].rescue.note, ' ', el('cite', {}, [`— ${CREDIT.name}, in the reel`]),
       ]));
     }
   }
 
-  parts.push(tallyList(state.history));
+  parts.push(el('p', { class: 'roast' }, [s.roast, ' ', el('cite', {}, [`— ${ROASTER}`])]));
+  parts.push(tallyList(s.history));
+  parts.push(el('button', { class: 'undo', type: 'button', onclick: back }, ['Change the last answer']));
   parts.push(el('div', { class: 'spacer' }));
   parts.push(creditLine());
   parts.push(el('div', { class: 'actions' }, [
@@ -199,104 +269,188 @@ function usedTherapyRescue(history) {
   return pos.step === 7 && pos.phase === 'rescue';
 }
 
-function renderMarks(pos) {
-  $marks.replaceChildren(...STEPS.map((_, i) => {
-    const cls = pos.verdict ? 'done' : i < pos.step ? 'done' : i === pos.step ? 'now' : '';
-    return el('li', { class: cls, 'aria-label': `Question ${i + 1}` });
-  }));
+function screenOf(s) {
+  if (s.screen === 'start') return 'start';
+  return positionAfter(s.history).verdict ? 'result' : 'question';
 }
 
-function sheetFor(s) {
+function cardFor(s) {
   const pos = positionAfter(s.history);
-  const sheet = el('section', { class: 'sheet', id: 'sheet', tabindex: '-1', 'aria-live': 'polite' });
-  if (s.screen === 'start') sheet.append(...renderStart());
-  else if (pos.verdict) sheet.append(...renderResult(pos));
-  else {
-    if (pos.phase === 'rescue') sheet.classList.add('board');
-    sheet.append(...renderQuestion(pos));
-  }
-  return { sheet, pos };
-}
-
-function paint(next, direction) {
-  const old = document.getElementById('sheet');
-  const { sheet, pos } = sheetFor(next);
-  const showBar = next.screen !== 'start';
-  $bar.hidden = !showBar;
-  $back.disabled = next.history.length === 0;
-  renderMarks(pos.verdict ? { ...pos, step: STEPS.length } : pos);
-
-  const instant = reduceMotion.matches || direction === 'none';
-  if (instant) {
-    old.replaceWith(sheet);
-    focusSheet(sheet);
-    return;
-  }
-
-  animating = true;
-  if (direction === 'forward') {
-    // New sheet is inserted under the old one, which peels away.
-    sheet.classList.add('enter');
-    $stage.insertBefore(sheet, old);
-    old.classList.add('leave');
-    old.removeAttribute('id');
-    old.setAttribute('aria-hidden', 'true');
-    old.addEventListener('animationend', () => { old.remove(); animating = false; }, { once: true });
+  const card = el('section', { class: 'card', id: 'card', tabindex: '-1', 'aria-live': 'polite' });
+  if (s.screen === 'start') {
+    card.classList.add('start');
+    card.append(...renderStart());
+  } else if (pos.verdict) {
+    card.classList.add('result');
+    card.append(...renderResult(pos, s));
   } else {
-    // Previous sheet comes back down on top of the current one.
-    sheet.classList.add('return');
-    $stage.append(sheet);
-    old.removeAttribute('id');
-    old.setAttribute('aria-hidden', 'true');
-    sheet.addEventListener('animationend', () => { old.remove(); sheet.classList.remove('return'); animating = false; }, { once: true });
+    card.classList.add('question');
+    if (pos.phase === 'rescue') card.classList.add('board');
+    card.append(...renderQuestion(pos));
+    attachDrag(card);
   }
-  // Safety net if animationend never fires.
-  window.setTimeout(() => { if (old.isConnected) old.remove(); animating = false; }, PEEL_MS + 120);
-  focusSheet(sheet);
+  return card;
 }
 
-function focusSheet(sheet) {
-  const h = sheet.querySelector('h1');
+// `direction` says how the new card arrives: 'none' (first paint), 'deal'
+// (next card is already sitting under the one that flew off), 'settle' (start
+// of the deck), or 'back' (the previous card flies back in from the side its
+// answer sent it; `from` is that answer).
+function paint(next, direction, from) {
+  const old = document.getElementById('card');
+  const card = cardFor(next);
+  const screen = screenOf(next);
+  $app.dataset.screen = screen;
+  $back.disabled = next.history.length === 0 || screen === 'start';
+  $no.disabled = $yes.disabled = screen !== 'question';
+  $deck.style.setProperty('--p', 0);
+  $deck.classList.remove('flying', 'snapping');
+
+  old.replaceWith(card);
+  const instant = reduceMotion.matches || direction === 'none' || direction === 'deal';
+  if (!instant && direction === 'settle') {
+    card.classList.add('settle');
+    window.setTimeout(() => card.classList.remove('settle'), SETTLE_MS + 50);
+  }
+  if (!instant && direction === 'back') {
+    card.classList.add(from === 'yes' ? 'from-right' : 'from-left');
+    animating = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      card.classList.add('returning');
+      card.classList.remove('from-right', 'from-left');
+      window.setTimeout(() => { card.classList.remove('returning'); animating = false; }, FLY_MS + 50);
+    }));
+  }
+  focusCard(card);
+}
+
+function focusCard(card) {
+  const h = card.querySelector('h1');
   if (h) { h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
+// ---- swipe -----------------------------------------------------------------
+
+function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
+
+function thresholdFor(card) {
+  return Math.min(0.38 * card.offsetWidth, 160);
+}
+
+function applyDrag(card, dx, dy) {
+  const tilt = clamp(dx / TILT_DIVISOR, -MAX_TILT, MAX_TILT);
+  card.style.transform = `translate(${dx}px, ${dy * 0.35}px) rotate(${tilt}deg)`;
+  card.style.setProperty('--yes', clamp(dx / STAMP_FULL_AT, 0, 1));
+  card.style.setProperty('--no', clamp(-dx / STAMP_FULL_AT, 0, 1));
+  $deck.style.setProperty('--p', clamp(Math.abs(dx) / thresholdFor(card), 0, 1));
+}
+
+function attachDrag(card) {
+  let drag = null;
+
+  card.addEventListener('pointerdown', (e) => {
+    if (animating || drag) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, samples: [[performance.now(), e.clientX]] };
+    card.setPointerCapture(e.pointerId);
+    card.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  card.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.dx = e.clientX - drag.x0;
+    drag.dy = e.clientY - drag.y0;
+    drag.samples.push([performance.now(), e.clientX]);
+    if (drag.samples.length > 6) drag.samples.shift();
+    applyDrag(card, drag.dx, drag.dy);
+  });
+
+  const release = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    card.classList.remove('dragging');
+    const [t0, x0] = d.samples[0];
+    const [t1, x1] = d.samples[d.samples.length - 1];
+    const speed = t1 > t0 ? (x1 - x0) / (t1 - t0) : 0;
+    const flick = Math.abs(speed) > FLICK_SPEED && Math.abs(d.dx) > FLICK_MIN_DX && Math.sign(speed) === Math.sign(d.dx);
+    if (Math.abs(d.dx) > thresholdFor(card) || flick) swipe(d.dx > 0 ? 'yes' : 'no', d.dy);
+    else snapBack(card);
+  };
+  card.addEventListener('pointerup', release);
+  card.addEventListener('pointercancel', release);
+}
+
+function snapBack(card) {
+  card.classList.add('snapping');
+  $deck.classList.add('snapping');
+  card.style.transform = '';
+  card.style.setProperty('--yes', 0);
+  card.style.setProperty('--no', 0);
+  $deck.style.setProperty('--p', 0);
+  window.setTimeout(() => { card.classList.remove('snapping'); $deck.classList.remove('snapping'); }, SNAP_MS + 30);
+}
+
+// Answer the current question by sending the card off the matching side. Used
+// by the drag release, the dock buttons and the keyboard alike.
+function swipe(value, dy = 0) {
+  if (animating) return;
+  if (screenOf(state) !== 'question') return;
+  const card = document.getElementById('card');
+  const history = Object.freeze([...state.history, Object.freeze({ answer: value })]);
+  const commit = () => setState({ screen: 'play', history }, 'deal');
+
+  if (reduceMotion.matches) { commit(); return; }
+
+  animating = true;
+  const sign = value === 'yes' ? 1 : -1;
+  const distance = Math.max(window.innerWidth, card.offsetWidth) * 1.4;
+  card.classList.add('flying');
+  $deck.classList.add('flying');
+  card.style.transform = `translate(${sign * distance}px, ${dy}px) rotate(${sign * 28}deg)`;
+  card.style.setProperty('--yes', value === 'yes' ? 1 : 0);
+  card.style.setProperty('--no', value === 'no' ? 1 : 0);
+  $deck.style.setProperty('--p', 1);
+  window.setTimeout(() => { animating = false; commit(); }, FLY_MS);
+}
+
 // ---- actions ----------------------------------------------------------------
 
-function setState(next, direction) {
-  state = Object.freeze(next);
-  paint(state, direction);
+function setState(next, direction, from) {
+  const pos = positionAfter(next.history);
+  const roast = next.screen === 'play' && pos.verdict ? pickRoast(pos) : null;
+  state = Object.freeze({ ...next, roast });
+  paint(state, direction, from);
 }
 
 function start() {
-  setState({ screen: 'play', history: Object.freeze([]) }, 'forward');
-}
-
-function answer(value) {
   if (animating) return;
-  const history = Object.freeze([...state.history, Object.freeze({ answer: value })]);
-  setState({ screen: 'play', history }, 'forward');
+  setState({ screen: 'play', history: Object.freeze([]) }, 'settle');
 }
 
 function back() {
   if (animating) return;
   if (state.history.length === 0) return;
+  const undone = state.history[state.history.length - 1].answer;
   const history = Object.freeze(state.history.slice(0, -1));
-  setState({ screen: 'play', history }, 'back');
+  setState({ screen: 'play', history }, 'back', undone);
 }
 
 function restart() {
   if (animating) return;
-  setState(initialState, 'forward');
+  setState(initialState, 'settle');
 }
 
 function shareText() {
   const pos = positionAfter(state.history);
   const verdict = pos.verdict === 'NO' ? VERDICT.NO : VERDICT.YES;
   const where = pos.verdict === 'NO'
-    ? `\nHe fell at: ${STEPS[pos.failedAt].q}\n“${STEPS[pos.failedAt].why.text}”`
+    ? `\n“${STEPS[pos.failedAt].why.text}”`
     : `\nHe made it through all eight.\n“${YES_LINE}”`;
-  return `Should you give this man a chance? I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}\n\n${location.href}`;
+  const roast = state.roast ? `\n“${state.roast}” — ${ROASTER}` : '';
+  return `Should you give this man a chance? I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}${roast}\n\n${location.href}`;
 }
 
 async function share(event) {
@@ -321,11 +475,15 @@ function flash(btn, label) {
 }
 
 $back.addEventListener('click', back);
+$no.addEventListener('click', () => swipe('no'));
+$yes.addEventListener('click', () => swipe('yes'));
 document.addEventListener('keydown', (e) => {
-  if (state.screen !== 'play' || positionAfter(state.history).verdict) return;
-  if (e.key === 'y' || e.key === 'Y') answer('yes');
-  if (e.key === 'n' || e.key === 'N') answer('no');
-  if (e.key === 'Backspace' && !e.target.closest('input, textarea')) { e.preventDefault(); back(); }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (state.screen !== 'play') return;
+  if (e.key === 'Backspace' && !e.target.closest('input, textarea')) { e.preventDefault(); back(); return; }
+  if (positionAfter(state.history).verdict) return;
+  if (e.key === 'y' || e.key === 'Y') swipe('yes');
+  if (e.key === 'n' || e.key === 'N') swipe('no');
 });
 
 paint(state, 'none');
