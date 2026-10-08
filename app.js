@@ -100,6 +100,8 @@ const MAX_TILT = 16;
 const TILT_DIVISOR = 18;
 const FLICK_SPEED = 0.6; // px per ms
 const FLICK_MIN_DX = 40;
+const FLICK_WINDOW_MS = 100; // only movement this recent counts toward a flick
+const INPUT_LOCK_MS = 250; // reduced motion still needs a beat between answers
 const STAMP_FULL_AT = 90; // px of drag at which the stamp is fully inked
 
 // State is replaced, never mutated. `history` is the list of answers given so
@@ -184,7 +186,7 @@ function renderStart() {
     el('h1', { class: 'title', html: 'Should you give this man <em>a chance?</em>' }),
     el('p', { class: 'lede' }, ['He’s cute. Allegedly. Let’s see if he survives Sherita’s flowchart.']),
     el('div', { class: 'spacer' }),
-    el('p', { class: 'nudge', 'aria-hidden': 'true' }, ['swipe to start']),
+    el('p', { class: 'nudge' }, ['swipe to start']),
     creditLine(),
     el('div', { class: 'stamp yes', 'aria-hidden': 'true' }, ['Yes']),
     el('div', { class: 'stamp no', 'aria-hidden': 'true' }, ['Nope']),
@@ -343,7 +345,7 @@ function attachDrag(card) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (e.target.closest('a, button')) return;
     drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, samples: [[performance.now(), e.clientX]] };
-    card.setPointerCapture(e.pointerId);
+    try { card.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     card.classList.add('dragging');
     e.preventDefault();
   });
@@ -357,20 +359,31 @@ function attachDrag(card) {
     applyDrag(card, drag.dx, drag.dy);
   });
 
+  const cancel = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null;
+    card.classList.remove('dragging');
+    snapBack(card);
+  };
+
   const release = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     const d = drag;
     drag = null;
     card.classList.remove('dragging');
-    const [t0, x0] = d.samples[0];
-    const [t1, x1] = d.samples[d.samples.length - 1];
+    const now = performance.now();
+    const recent = d.samples.filter(([t]) => now - t <= FLICK_WINDOW_MS);
+    if (recent.length < 2) recent.splice(0, recent.length, [now, e.clientX], [now, e.clientX]);
+    const [t0, x0] = recent[0];
+    const [t1, x1] = recent[recent.length - 1];
     const speed = t1 > t0 ? (x1 - x0) / (t1 - t0) : 0;
     const flick = Math.abs(speed) > FLICK_SPEED && Math.abs(d.dx) > FLICK_MIN_DX && Math.sign(speed) === Math.sign(d.dx);
     if (Math.abs(d.dx) > thresholdFor(card) || flick) swipe(d.dx > 0 ? 'yes' : 'no', d.dy);
     else snapBack(card);
   };
   card.addEventListener('pointerup', release);
-  card.addEventListener('pointercancel', release);
+  card.addEventListener('pointercancel', cancel);
+  card.addEventListener('lostpointercapture', cancel);
 }
 
 function snapBack(card) {
@@ -396,7 +409,12 @@ function swipe(value, dy = 0) {
     : Object.freeze([...state.history, Object.freeze({ answer: value })]);
   const commit = () => setState({ screen: 'play', history }, 'deal');
 
-  if (reduceMotion.matches) { commit(); return; }
+  if (reduceMotion.matches) {
+    animating = true;
+    commit();
+    window.setTimeout(() => { animating = false; }, INPUT_LOCK_MS);
+    return;
+  }
 
   animating = true;
   const sign = value === 'yes' ? 1 : -1;
@@ -443,7 +461,12 @@ function shareText() {
 }
 
 async function share(event) {
-  const btn = event.currentTarget;
+  if (sharing) return;
+  sharing = true;
+  try { await shareNow(event.currentTarget); } finally { sharing = false; }
+}
+
+async function shareNow(btn) {
   const text = shareText();
   if (navigator.share) {
     try { await navigator.share({ text }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
@@ -456,18 +479,22 @@ async function share(event) {
   }
 }
 
+let flashTimer = 0;
+let sharing = false;
+
 function flash(btn, label) {
-  const original = btn.innerHTML;
+  if (!btn.dataset.original) btn.dataset.original = btn.innerHTML;
+  window.clearTimeout(flashTimer);
   btn.classList.add('copied');
   btn.textContent = label;
-  window.setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = original; }, 1800);
+  flashTimer = window.setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = btn.dataset.original; }, 1800);
 }
 
 $back.addEventListener('click', back);
 $no.addEventListener('click', () => swipe('no'));
 $yes.addEventListener('click', () => swipe('yes'));
 document.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
   if (e.key === 'Backspace' && state.screen !== 'play') return;
   if (e.key === 'Backspace' && !e.target.closest('input, textarea')) { e.preventDefault(); back(); return; }
   if (positionAfter(state.history).verdict) return;
