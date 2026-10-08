@@ -435,6 +435,7 @@ h1:focus-visible { outline: none; }
 
 .credit { margin: 0; font-size: 14px; color: var(--ink-soft); }
 .card.start .credit { margin-top: 20px; }
+.byline { display: block; margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: lowercase; opacity: .8; }
 
 .noscript {
   position: fixed;

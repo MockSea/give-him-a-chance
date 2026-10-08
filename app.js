@@ -168,7 +168,8 @@ const ICON_HEART = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tr
 function creditLine() {
   return el('p', { class: 'credit', html:
     `Flowchart by <a href="${CREDIT.profile}" rel="noopener">${CREDIT.name} (${CREDIT.handle})</a>` +
-    ` &middot; <a href="${CREDIT.reel}" rel="noopener">watch the reel</a>` });
+    ` &middot; <a href="${CREDIT.reel}" rel="noopener">watch the reel</a>` +
+    `<span class="byline">built by <a href="https://github.com/MockSea" rel="noopener">Moxy</a> 🖤</span>` });
 }
 
 function marksList(pos) {
