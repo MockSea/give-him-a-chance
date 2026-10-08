@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Should you give this man a chance?</title>
+  <meta name="description" content="Sherita Janielle's flowchart, one question at a time. Eight questions, a few rescue questions, two verdicts.">
+  <meta name="theme-color" content="#ec8db1">
+  <meta name="color-scheme" content="light">
+  <meta property="og:title" content="Should you give this man a chance?">
+  <meta property="og:description" content="Run him through Sherita Janielle's flowchart. Eight questions, a few rescue questions, two verdicts.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%23f7acc7'/%3E%3Ctext x='32' y='46' font-family='Arial, sans-serif' font-size='40' font-weight='800' text-anchor='middle' fill='%231733b8'%3E%3F%3C/text%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#sheet">Skip to the question</a>
+
+  <header class="bar" id="bar" hidden>
+    <button class="back" id="back" type="button">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      <span>Back</span>
+    </button>
+    <ol class="marks" id="marks" aria-label="Progress"></ol>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="stack" aria-hidden="true">
+      <div class="under under-2"></div>
+      <div class="under under-1"></div>
+    </div>
+    <section class="sheet" id="sheet" tabindex="-1" aria-live="polite"></section>
+  </main>
+
+  <noscript>
+    <div class="noscript">
+      <p>This needs JavaScript to turn the pages. The flowchart itself is by <a href="https://www.instagram.com/sheritajanielle/">Sherita Janielle (@sheritajanielle)</a>, in <a href="https://www.instagram.com/reel/DeKs-qdvu4l/">this reel</a>.</p>
+    </div>
+  </noscript>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
