@@ -181,19 +181,18 @@ function marksList(pos) {
 function renderStart() {
   return [
     el('h1', { class: 'title', html: 'Should you give this man <em>a chance?</em>' }),
-    el('p', { class: 'lede' }, ['Eight questions, a few rescue questions, two verdicts. Swipe right for yes, left for no. She built the flowchart so you don’t have to guess.']),
+    el('p', { class: 'lede' }, ['He’s cute. Allegedly. Let’s see if he survives Sherita’s flowchart.']),
     el('div', { class: 'spacer' }),
+    el('p', { class: 'nudge', 'aria-hidden': 'true' }, ['swipe to start']),
     creditLine(),
-    el('button', { class: 'btn', type: 'button', onclick: start }, ['Start swiping']),
+    el('div', { class: 'stamp yes', 'aria-hidden': 'true' }, ['Yes']),
+    el('div', { class: 'stamp no', 'aria-hidden': 'true' }, ['Nope']),
   ];
 }
 
 function renderQuestion(pos) {
   const q = questionAt(pos);
   const parts = [marksList(pos), el('div', { class: 'spacer top' }), el('h1', { class: 'q' }, [q.q])];
-  if (pos.phase === 'rescue') {
-    parts.push(el('p', { class: 'sub' }, ['Every no doesn’t mean it’s over. He gets one rescue question.']));
-  }
   parts.push(el('div', { class: 'spacer' }));
   parts.push(el('div', { class: 'stamp yes', 'aria-hidden': 'true' }, ['Yes']));
   parts.push(el('div', { class: 'stamp no', 'aria-hidden': 'true' }, ['Nope']));
@@ -208,7 +207,7 @@ function tallyList(history) {
     const main = STEPS[step];
     const q = phase === 'main' ? main : main.rescue;
     const ok = answer === q.pass;
-    items.push(el('li', { class: phase === 'rescue' ? 'rescue' : '' }, [
+    items.push(el('li', {}, [
       el('span', {}, [q.q]),
       el('span', { class: `a ${ok ? 'yes' : 'no'}` }, [answer === 'yes' ? 'Yes' : 'No']),
     ]));
@@ -236,13 +235,7 @@ function renderResult(pos, s) {
     parts.push(whyBlock(STEPS[pos.failedAt].why));
   } else {
     parts.push(el('div', { class: 'slam' }, [heartBurst(), verdict]));
-    parts.push(el('p', { class: 'fell' }, ['He made it through all eight.']));
     parts.push(whyBlock({ text: YES_LINE, said: true }));
-    if (usedTherapyRescue(s.history)) {
-      parts.push(el('blockquote', { class: 'quote' }, [
-        STEPS[7].rescue.note, ' ', el('cite', {}, [`— ${CREDIT.name}, in the reel`]),
-      ]));
-    }
   }
 
   parts.push(el('p', { class: 'roast' }, [s.roast, ' ', el('cite', {}, [`— ${ROASTER}`])]));
@@ -264,11 +257,6 @@ function whyBlock(why) {
   ]);
 }
 
-function usedTherapyRescue(history) {
-  const pos = positionAfter(history.slice(0, -1));
-  return pos.step === 7 && pos.phase === 'rescue';
-}
-
 function screenOf(s) {
   if (s.screen === 'start') return 'start';
   return positionAfter(s.history).verdict ? 'result' : 'question';
@@ -280,12 +268,12 @@ function cardFor(s) {
   if (s.screen === 'start') {
     card.classList.add('start');
     card.append(...renderStart());
+    attachDrag(card);
   } else if (pos.verdict) {
     card.classList.add('result');
     card.append(...renderResult(pos, s));
   } else {
     card.classList.add('question');
-    if (pos.phase === 'rescue') card.classList.add('board');
     card.append(...renderQuestion(pos));
     attachDrag(card);
   }
@@ -302,7 +290,7 @@ function paint(next, direction, from) {
   const screen = screenOf(next);
   $app.dataset.screen = screen;
   $back.disabled = next.history.length === 0 || screen === 'start';
-  $no.disabled = $yes.disabled = screen !== 'question';
+  $no.disabled = $yes.disabled = screen === 'result';
   $deck.style.setProperty('--p', 0);
   $deck.classList.remove('flying', 'snapping');
 
@@ -352,6 +340,7 @@ function attachDrag(card) {
   card.addEventListener('pointerdown', (e) => {
     if (animating || drag) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.closest('a, button')) return;
     drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, samples: [[performance.now(), e.clientX]] };
     card.setPointerCapture(e.pointerId);
     card.classList.add('dragging');
@@ -394,12 +383,16 @@ function snapBack(card) {
 }
 
 // Answer the current question by sending the card off the matching side. Used
-// by the drag release, the dock buttons and the keyboard alike.
+// by the drag release, the dock buttons and the keyboard alike. On the start
+// card either direction deals the first question.
 function swipe(value, dy = 0) {
   if (animating) return;
-  if (screenOf(state) !== 'question') return;
+  const screen = screenOf(state);
+  if (screen === 'result') return;
   const card = document.getElementById('card');
-  const history = Object.freeze([...state.history, Object.freeze({ answer: value })]);
+  const history = screen === 'start'
+    ? Object.freeze([])
+    : Object.freeze([...state.history, Object.freeze({ answer: value })]);
   const commit = () => setState({ screen: 'play', history }, 'deal');
 
   if (reduceMotion.matches) { commit(); return; }
@@ -425,11 +418,6 @@ function setState(next, direction, from) {
   paint(state, direction, from);
 }
 
-function start() {
-  if (animating) return;
-  setState({ screen: 'play', history: Object.freeze([]) }, 'settle');
-}
-
 function back() {
   if (animating) return;
   if (state.history.length === 0) return;
@@ -448,7 +436,7 @@ function shareText() {
   const verdict = pos.verdict === 'NO' ? VERDICT.NO : VERDICT.YES;
   const where = pos.verdict === 'NO'
     ? `\n“${STEPS[pos.failedAt].why.text}”`
-    : `\nHe made it through all eight.\n“${YES_LINE}”`;
+    : `\n“${YES_LINE}”`;
   const roast = state.roast ? `\n“${state.roast}” — ${ROASTER}` : '';
   return `Should you give this man a chance? I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}${roast}\n\n${location.href}`;
 }
@@ -479,7 +467,7 @@ $no.addEventListener('click', () => swipe('no'));
 $yes.addEventListener('click', () => swipe('yes'));
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (state.screen !== 'play') return;
+  if (e.key === 'Backspace' && state.screen !== 'play') return;
   if (e.key === 'Backspace' && !e.target.closest('input, textarea')) { e.preventDefault(); back(); return; }
   if (positionAfter(state.history).verdict) return;
   if (e.key === 'y' || e.key === 'Y') swipe('yes');
