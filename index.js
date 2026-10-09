@@ -6,6 +6,8 @@
   const root = document.documentElement;
   const index = document.querySelector('.index-page');
   const links = [...index.querySelectorAll('.panel .title a')];
+  // Resolve index links against home even while a deck URL is active.
+  const panelURL = (a) => new URL(a.getAttribute('href'), home).href;
   const routes = new Map(links.map((a) => [a.href, {}]));
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const meta = [...document.querySelectorAll('meta[name], meta[property]')];
@@ -115,7 +117,7 @@
     if (pending) return;
     pending = true;
     const ticket = ++revision;
-    const href = a.href;
+    const href = panelURL(a);
     try {
       const route = await prepare(href);
       if (ticket !== revision) return;
@@ -157,13 +159,44 @@
 
   links.forEach((a) => {
     for (const event of ['pointerenter', 'pointerdown', 'focus']) {
-      a.addEventListener(event, () => { if (!navigator.connection?.saveData) warm(a.href).catch(() => {}); }, { passive: true });
+      a.addEventListener(event, () => { if (!navigator.connection?.saveData) warm(panelURL(a)).catch(() => {}); }, { passive: true });
     }
     a.addEventListener('click', (e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       e.preventDefault();
       open(a);
     });
+  });
+  // Keep next/previous-part and all-parts links in this router's history.
+  // Direct deck documents still use ordinary links.
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('a');
+    if (!a || !app?.contains(a) || e.defaultPrevented || e.button !== 0 ||
+        e.metaKey || e.ctrlKey || e.altKey || e.shiftKey ||
+        a.hasAttribute('download') || (a.target && a.target !== '_self')) return;
+    const href = a.href;
+    if (href !== home && !routes.has(href)) return;
+    e.preventDefault();
+    if (pending) return;
+    if (href === home) {
+      history.pushState(null, '', href);
+      restoreIndex();
+      return;
+    }
+    pending = true;
+    const ticket = ++revision;
+    try {
+      const route = await prepare(href);
+      if (ticket !== revision) return;
+      cancelMotion();
+      mount(route, href);
+      history.pushState(null, '', href);
+      finish();
+      window.scrollTo(0, 0);
+      pending = false;
+    } catch {
+      if (ticket === revision) { pending = false; location.assign(href); }
+    }
   });
   function address() {
     const url = new URL(location.href);

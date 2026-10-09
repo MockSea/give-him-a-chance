@@ -453,4 +453,14 @@ return {
 };
 };
 
-if (document.getElementById('app')) window.deckApp = window.mountDeck();
+if (document.getElementById('app')) {
+  window.deckApp = window.mountDeck();
+  // A reload (or history restoration without bfcache) at a pushed deck URL
+  // loads this standalone document. Older same-document entries can still
+  // point to home or another deck; fetch that URL instead of keeping this UI.
+  const route = () => location.pathname.replace(/\/index\.html$/, '/');
+  const loadedRoute = route();
+  const reconcile = () => { if (route() !== loadedRoute) location.reload(); };
+  window.addEventListener('popstate', reconcile);
+  window.addEventListener('pageshow', reconcile);
+}

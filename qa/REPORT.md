@@ -1,5 +1,30 @@
 # Index expansion validation
 
+## History correction after real-machine QA
+
+The owner reported Chromium timing out on the second Back in
+index → part 1 → YES → part 2 → Back → Back. Source inspection confirmed
+that next-part links left the router. If the index document is not restored
+from bfcache, returning to its pushed part-1 URL loads standalone deck HTML.
+That HTML previously had no history reconciliation, so traversing an older
+same-document home entry could change the URL while leaving the deck visible.
+Reloading a routed deck exposes the same missing reconciliation.
+
+- `index.js` now routes next-part, previous-part and all-parts links, pushing
+  one entry and disposing the outgoing deck. Modified clicks retain normal
+  link behavior. Index panel URLs resolve against home throughout navigation.
+- `app.js` reconciles standalone deck `popstate`/`pageshow` by reloading when
+  the route differs from the loaded route. Fragment/query changes and
+  `index.html` aliases do not trigger reloads. Direct loads add no entries.
+- The original two-Back test is unchanged, with an additional same-document
+  assertion. `qa/motion.mjs` now checks Back/Forward after mid-deck reload,
+  direct-load Back, previous-part/all-parts navigation, and reload with
+  different-deck and home entries ahead in history.
+- Syntax checks passed for all four changed JS files; `git diff --check`
+  passed. Browser QA was not rerun in this sandbox. The diagnosis follows
+  source paths; the owner's rerun must verify actual browser restoration.
+- This correction is left uncommitted as requested.
+
 ## Diagnosis from source
 
 The old shared card snapshots used the browser's default cross-fade, with

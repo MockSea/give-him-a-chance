@@ -499,6 +499,7 @@ async function runIndex(ctx, base, t, opts) {
   await page.waitForFunction(() => !!window.DECK && !!document.querySelector('#card h1'));
   d = await landed();
   t.check(P('index -> part 1 -> YES -> part 2'), d.url === `${base}${P2}` && d.title === 'Is he worth your time?' && d.screen === 'start' && d.card, d.url);
+  t.check(P('next-part link stays in the index document'), await page.evaluate(() => !!window.indexDocument));
   await page.goBack({ waitUntil: 'commit' });
   await page.waitForFunction((u) => location.href === u && !!window.DECK, `${base}${P1}`);
   const mid = await page.evaluate(() => ({ url: location.href, title: window.DECK.TITLE_TEXT }));

@@ -71,9 +71,45 @@ export async function navigationEdges(browser, options, base, t) {
   await page.goBack();
   await page.goForward();
   t.check('reduced motion: forward starts a fresh deck', await page.locator('#app').getAttribute('data-screen') === 'start');
+  await page.locator('#act-yes').tap();
   await page.reload();
   await page.waitForFunction(() => !!document.querySelector('#card h1'));
   t.check('reload after pushState loads real deck HTML', await page.evaluate(() => !window.sameDocument && !!window.deckApp));
+  await page.goBack();
+  await page.waitForFunction((url) => location.href === url && !!document.querySelector('.parts') && !document.querySelector('.index-page').hidden, base);
+  t.check('back after mid-deck reload restores home', await page.locator('#app').count() === 0);
+  await page.goForward();
+  await page.waitForFunction(() => window.DECK?.TITLE_TEXT === 'Is he worth your time?' && !!document.querySelector('#card h1'));
+  t.check('forward after reload restores part 2', await page.locator('#app').getAttribute('data-screen') === 'start');
+
+  // Direct deck navigation must not manufacture an extra home entry.
+  await page.goto(base);
+  await page.goto(base + 'give-him-a-chance/');
+  await page.goBack();
+  await page.waitForSelector('.parts');
+  t.check('back from a directly loaded deck returns to prior index', page.url() === base);
+
+  await page.evaluate(() => { window.sameDocument = true; });
+  await page.locator('.panel:nth-child(2) .title a').tap();
+  await page.waitForURL(base + 'worth-your-time/');
+  await page.locator('#card .credit a').filter({ hasText: 'start with part 1' }).tap();
+  await page.waitForURL(base + 'give-him-a-chance/');
+  t.check('previous-part link stays in the index document', await page.evaluate(() => !!window.sameDocument && window.DECK.TITLE_TEXT === 'Should you give this man a chance?'));
+  await page.locator('#card a.all').tap();
+  await page.waitForSelector('.parts');
+  t.check('all parts pushes home in the same document', await page.evaluate((url) => location.href === url && !!window.sameDocument && !window.deckApp, base));
+  await page.goBack();
+  await page.waitForFunction(() => window.DECK?.TITLE_TEXT === 'Should you give this man a chance?');
+  await page.goBack();
+  await page.waitForFunction(() => window.DECK?.TITLE_TEXT === 'Is he worth your time?');
+  // Reload with both home and a different deck in the forward history.
+  await page.reload();
+  await page.waitForSelector('#card h1');
+  await page.goForward();
+  await page.waitForFunction(() => window.DECK?.TITLE_TEXT === 'Should you give this man a chance?');
+  await page.goForward();
+  await page.waitForSelector('.parts');
+  t.check('forward after reload traverses another deck and all parts', page.url() === base);
 
   await page.goto(base);
   let release;
