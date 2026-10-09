@@ -1,3 +1,46 @@
+# Round 2: transitions everywhere
+
+Changes are uncommitted. The prior sections below describe the previous pass.
+
+- Shared routing now runs on index and direct deck loads. All-parts and browser
+  traversal animate the panel/deck relationship in both directions. Part-to-part
+  links and traversal use a horizontal handoff with a changing ground colour.
+- A temporary paper surface prevents the empty interval between the two text
+  treatments. Its endpoint opacity avoids a shadow jump during cleanup. Text
+  stays at its own layout size. Scrolled verdict departures preserve geometry.
+- Back during index motion reverses the existing clock. Fetch preparation is
+  serialized, stale completions are ignored, and page lifecycle/reduced-motion
+  changes settle live motion. Direct initialization adds no history entries.
+- `qa/qa.mjs` retains the prior deck, layout, history and fallback checks and
+  waits for route completion where the formerly instant return now animates.
+- `qa/motion.mjs` pauses WAAPI and seeks 0, 16, ... 416, 420ms for both panel
+  entries, browser Back/Forward, both all-parts returns and their history edges,
+  previous-part/next-part links and their history edges, a direct deck, traversal
+  after reload, and a scrolled verdict return. The reduced-motion matrix covers
+  both parts, both cross-links, all-parts, and their Back/Forward directions.
+- Every sampled flow writes before/live frames, individual PNGs, a JSON record,
+  and a `qa/shots/{engine}-{flow}-strip.png` contact sheet. A missing animation
+  still writes a before/cut strip and fails. Reduced-motion strips show the
+  intentional instant change. Files from earlier runs are not new evidence.
+- Checks include first-frame/source and final-frame/live pixel equality,
+  intermediate visual states, stable typography, title separation, paper-colour
+  coverage in every frame, the other panel painted before return completion,
+  theme continuity, cleanup and interactivity. Existing direct-load equality
+  and the shadow-raster tolerance from 994b960 are retained.
+
+Validation here: `node --check` passed for `index.js`, `app.js`, `qa/qa.mjs`,
+`qa/motion.mjs`; `git diff --check` passed. No server/browser was attempted,
+per the sandbox constraint. No new captures or engine pass totals are claimed.
+Run `node qa/qa.mjs [path/to/playwright/index.mjs]` to generate evidence in both
+engines, then inspect the strips. Deterministic seeking checks appearance,
+not real-device frame rate, Safari toolbar changes, or actual bfcache timing.
+
+The visual bar is reasonable for in-site routing. Native Back to a separately
+loaded document (or external page), and full-navigation error fallbacks, remain
+browser-controlled; the shared router cannot promise animated frames there.
+
+---
+
 # Index expansion validation
 
 ## History correction after real-machine QA

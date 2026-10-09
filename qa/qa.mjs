@@ -60,7 +60,7 @@ function ledger(engine) {
 
 // ---- page helpers ------------------------------------------------------------
 
-const idle = (page) => page.waitForFunction(() => !window.deckApp.animating && !document.documentElement.classList.contains('leaving') && !document.querySelector('.card.flying, .card.returning'));
+const idle = (page) => page.waitForFunction(() => !window.routeBusy && !window.deckApp?.animating && !document.documentElement.classList.contains('leaving') && !document.querySelector('.card.flying, .card.returning'));
 
 async function tapAndSettle(page, selector) {
   await page.locator(selector).tap();
@@ -352,6 +352,7 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
   }
   await Promise.all([page.waitForURL(base), page.locator('#card .credit .series a.all').tap()]);
   await page.waitForFunction(() => document.querySelectorAll('.panel').length > 0);
+  await idle(page);
   const index = await page.evaluate(() => ({ href: location.href, title: document.title, panels: document.querySelectorAll('.panel').length }));
   t.check(P('"all parts" goes to the index'), index.href === base && index.title === INDEX_TITLE && index.panels === 2, `${index.href} ${index.title}`);
   if (deck.NEXT) {
@@ -618,7 +619,7 @@ async function engineRun(name, browserType, ctxOpts, smallOpts, base) {
     await runIndex(plain, base, t, { engine: name, width, tag: 'fallback', fallback: true });
   }
   await motionFrames(ctx, base, SHOTS, name, t);
-  await navigationEdges(browser, ctxOpts, base, t);
+  await navigationEdges(browser, ctxOpts, base, t, SHOTS, name);
   await browser.close();
   return t.results;
 }

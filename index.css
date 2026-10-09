@@ -127,7 +127,10 @@ html.index, html.index body { background: var(--ink); }
    grows; text is never rescaled or cross-faded over another title. */
 .index-page[hidden] { display: none; }
 .route-deck { position: fixed; inset: 0; z-index: 30; }
-.route-deck .col { opacity: 0; }
+.route-deck .col { position: relative; z-index: 1; }
+.route-paper { position: absolute; border-radius: var(--radius); background: var(--paper); box-shadow: var(--card-shadow); }
+.route-outgoing { position: fixed; left: 0; width: 100%; z-index: 31; pointer-events: none; }
+.route-outgoing *, .route-deck .nudge { animation: none !important; }
 .departing .mini, .departing::before { visibility: hidden; }
 .departing-panel { position: fixed; z-index: 31; margin: 0; pointer-events: none; }
 html.leaving { overflow: hidden; }

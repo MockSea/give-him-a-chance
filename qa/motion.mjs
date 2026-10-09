@@ -24,68 +24,212 @@ async function sameImage(page, a, b, maxPixels = 200) {
   }, [`data:image/png;base64,${a.toString('base64')}`, `data:image/png;base64,${b.toString('base64')}`, maxPixels]);
 }
 
+const P1 = 'give-him-a-chance/';
+const P2 = 'worth-your-time/';
+const settled = (page) => page.waitForFunction(() =>
+  !window.routeBusy && !document.documentElement.classList.contains('leaving') && !window.deckApp?.animating);
+const ready = async (page) => {
+  await page.evaluate(() => window.routerReady);
+  await page.evaluate(() => document.fonts.ready);
+  await settled(page);
+};
+
+// A contact sheet and pixel measurements of every frame, without a PNG library.
+async function evidence(page, buffers, labels) {
+  return page.evaluate(async ({ urls, labels }) => {
+    const images = await Promise.all(urls.map((src) => new Promise((resolve, reject) => {
+      const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = src;
+    })));
+    const width = 156, height = Math.round(width * images[0].height / images[0].width);
+    const sheet = document.createElement('canvas');
+    sheet.width = width * 7; sheet.height = (height + 24) * Math.ceil(images.length / 7);
+    const ctx = sheet.getContext('2d');
+    ctx.fillStyle = '#17111a'; ctx.fillRect(0, 0, sheet.width, sheet.height);
+    const paper = [[247, 172, 199], [212, 183, 245], [248, 249, 247]];
+    const metrics = images.map((img, n) => {
+      const x = n % 7 * width, y = Math.floor(n / 7) * (height + 24);
+      ctx.drawImage(img, x, y + 24, width, height);
+      ctx.fillStyle = 'white'; ctx.font = '12px sans-serif'; ctx.fillText(labels[n], x + 4, y + 17);
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, c.width, c.height).data;
+      let paperPixels = 0; const colours = [0, 0, 0];
+      for (let k = 0; k < px.length; k += 4) {
+        const match = paper.findIndex((rgb) => rgb.every((v, j) => Math.abs(px[k + j] - v) < 12));
+        if (match !== -1) { paperPixels++; colours[match]++; }
+      }
+      return { paperFraction: paperPixels / (c.width * c.height), colours: colours.map((n) => n / (c.width * c.height)) };
+    });
+    return { png: sheet.toDataURL('image/png').split(',')[1], metrics };
+  }, { urls: buffers.map((b) => `data:image/png;base64,${b.toString('base64')}`), labels });
+}
+
+async function instrument(page) {
+  await ready(page);
+  // Freeze only incidental CSS motion. Never use animations:disabled on a
+  // paused route: Playwright would finish the very animations being sampled.
+  await page.addStyleTag({ content: '.nudge { animation: none !important; }' });
+  await page.evaluate(() => {
+    if (window.motionInstrumented) return;
+    window.motionInstrumented = true;
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (...args) {
+      const a = animate.apply(this, args);
+      if (window.holdMotion) {
+        a.pause(); a.currentTime = 0; window.captured.push(a);
+      }
+      return a;
+    };
+  });
+}
+
+async function sample(page, action, name, destination, shots, engine, t) {
+  await instrument(page);
+  // Match the viewport tap() will use, particularly on a scrolling verdict.
+  if (typeof action === 'string') await page.locator(action).scrollIntoViewIfNeeded();
+  await page.waitForTimeout(50);
+  const prefix = `${engine}-${name}`;
+  const before = await page.screenshot({ path: path.join(shots, `${prefix}-before.png`), ...still });
+  await page.evaluate(() => { window.captured = []; window.holdMotion = true; });
+  if (typeof action === 'string') await page.locator(action).tap(); else await action();
+  await page.waitForURL(destination);
+  // A cut fails explicitly instead of hanging the entire suite indefinitely.
+  const moving = await page.waitForFunction(() => window.captured?.length > 0 &&
+    document.documentElement.classList.contains('leaving'), null, { timeout: 2500 }).then(() => true, () => false);
+  t.check(`${name}: navigation animates`, moving);
+  if (!moving) {
+    await page.evaluate(() => { window.holdMotion = false; });
+    const cut = await page.screenshot({ path: path.join(shots, `${prefix}-cut.png`), ...still });
+    const { png } = await evidence(page, [before, cut], ['before', 'no animation']);
+    fs.writeFileSync(path.join(shots, `${prefix}-strip.png`), Buffer.from(png, 'base64'));
+    return;
+  }
+  const records = [], buffers = [before], labels = ['before'];
+  let last;
+  for (const ms of [...Array.from({ length: 27 }, (_, i) => i * 16), 420]) {
+    records.push(await page.evaluate((ms) => {
+      window.captured.forEach((a) => { a.currentTime = ms; });
+      const rect = (el) => {
+        const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
+      };
+      const titles = [...document.querySelectorAll('#app h1, .route-outgoing h1, .departing-panel .title')].map((el) => ({
+        text: el.textContent, ...rect(el), font: getComputedStyle(el).fontSize,
+      }));
+      const preview = document.querySelector('.departing-panel');
+      const col = document.querySelector('#app .col');
+      const moving = [...document.querySelectorAll('#app .col, .route-outgoing')].map((el) => {
+        const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+        return { a: m.a, b: m.b, c: m.c, d: m.d };
+      });
+      return { ms, titles, moving,
+        old: preview ? +getComputedStyle(preview).opacity : null,
+        next: col ? +getComputedStyle(col).opacity : null,
+        clip: getComputedStyle(document.querySelector('#app')).clipPath,
+        background: getComputedStyle(document.querySelector('#app')).backgroundColor,
+        paper: document.querySelector('.route-paper') ? rect(document.querySelector('.route-paper')) : null,
+        otherPanel: [...document.querySelectorAll('.index-page .panel:not(.departing)')].map((el) => ({
+          ...rect(el), visibility: getComputedStyle(el.querySelector('.mini')).visibility,
+        })),
+      };
+    }, ms));
+    last = await page.screenshot({ path: path.join(shots, `${prefix}-${String(ms).padStart(3, '0')}.png`) });
+    buffers.push(last); labels.push(`${ms}ms`);
+  }
+  t.check(`${name}: first frame preserves the source`, await sameImage(page, before, buffers[1]));
+  t.check(`${name}: intermediate frame differs from both endpoints`,
+    !(await sameImage(page, buffers[14], buffers[1])) && !(await sameImage(page, buffers[14], last)));
+  t.check(`${name}: motion has many intermediate states`, new Set(records.map((f) => JSON.stringify([f.clip, f.titles, f.background, f.paper]))).size > 10);
+  t.check(`${name}: typography never scales`, records.every((f) =>
+    f.moving.every((m) => Math.abs(m.a - 1) < .001 && Math.abs(m.d - 1) < .001 && Math.abs(m.b) < .001 && Math.abs(m.c) < .001) &&
+    f.titles.every((title, i) => Math.abs(title.width - records[0].titles[i].width) < .1 &&
+      Math.abs(title.height - records[0].titles[i].height) < .1 && title.font === records[0].titles[i].font)));
+  if (records[0].old !== null) {
+    t.check(`${name}: titles never overlap`, records.every((f) => f.old === 0 || f.next === 0));
+    t.check(`${name}: paper remains present through the text handoff`, records.every((f) => f.paper?.width > 200 && f.paper?.height > 150));
+    t.check(`${name}: other panel exists throughout the return/reveal`, records.every((f) =>
+      f.otherPanel.length === 1 && f.otherPanel[0].width > 200 && f.otherPanel[0].visibility === 'visible'));
+    t.check(`${name}: ground retains the chosen theme`, records.every((f) => f.background === records[0].background));
+  } else {
+    t.check(`${name}: deck ground changes theme continuously`, records[0].background !== records.at(-1).background &&
+      records.some((f) => f.background !== records[0].background && f.background !== records.at(-1).background));
+  }
+  await page.evaluate(() => { window.holdMotion = false; window.captured.forEach((a) => a.finish()); });
+  await settled(page);
+  const live = await page.screenshot({ path: path.join(shots, `${prefix}-live.png`), ...still });
+  buffers.push(live); labels.push('live');
+  t.check(`${name}: final animation frame equals live page`, await sameImage(page, last, live));
+  t.check(`${name}: cleanup leaves one interactive destination`, await page.evaluate(() =>
+    !document.querySelector('.route-deck, .route-outgoing, .route-paper, .departing-panel, .departing') &&
+    (document.querySelector('#app') ? !document.querySelector('#app').inert && document.querySelector('.index-page').hidden :
+      !document.querySelector('.index-page').inert && !document.querySelector('.index-page').hidden)));
+  const { png, metrics } = await evidence(page, buffers, labels);
+  t.check(`${name}: no blank ground-colour frame`, metrics.every((m) => m.paperFraction > .025), JSON.stringify(metrics));
+  if (records[0].old === 0) {
+    const other = records[0].background === 'rgb(236, 141, 177)' ? 1 : 0;
+    t.check(`${name}: other panel is painted before the return ends`, metrics[14].colours[other] > .025);
+  }
+  fs.writeFileSync(path.join(shots, `${prefix}-strip.png`), Buffer.from(png, 'base64'));
+  fs.writeFileSync(path.join(shots, `${prefix}.json`), JSON.stringify({ records, metrics }, null, 2));
+  return live;
+}
+
+async function verdict(page) {
+  await ready(page);
+  const steps = await page.evaluate(() => window.DECK.STEPS);
+  for (const pass of ['yes', ...steps.map((s) => s.pass)]) {
+    await page.locator(`#act-${pass}`).tap(); await settled(page);
+  }
+  await page.waitForTimeout(1450); // includes the final heart's 500ms delay + 900ms burst
+}
+
 export async function motionFrames(ctx, base, shots, engine, t) {
   const page = await ctx.newPage();
-  for (const [part, slug] of [[1, 'give-him-a-chance/'], [2, 'worth-your-time/']]) {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const capture = (name, action, target) => sample(page, action, name, base + target, shots, engine, t);
+  for (const [part, slug] of [[1, P1], [2, P2]]) {
     await page.goto(base);
-    await page.evaluate(() => document.fonts.ready);
-    await page.evaluate(() => {
-      window.captured = [];
-      const animate = Element.prototype.animate;
-      Element.prototype.animate = function (...args) {
-        const animation = animate.apply(this, args);
-        animation.pause();
-        animation.currentTime = 0;
-        window.captured.push(animation);
-        return animation;
-      };
-    });
-    await page.locator(`.panel:nth-child(${part}) .title a`).tap();
-    await page.waitForFunction(() => window.captured.length === 3);
-    const records = [];
-    let last;
-    for (const ms of [...Array.from({ length: 27 }, (_, i) => i * 16), 420]) {
-      const frame = await page.evaluate((ms) => {
-        window.captured.forEach((a) => { a.currentTime = ms; });
-        const old = document.querySelector('.departing-panel');
-        const col = document.querySelector('#app .col');
-        const rect = document.querySelector('#card h1').getBoundingClientRect();
-        return {
-          ms, old: +getComputedStyle(old).opacity, next: +getComputedStyle(col).opacity,
-          clip: getComputedStyle(document.querySelector('#app')).clipPath,
-          background: getComputedStyle(document.querySelector('#app')).backgroundColor,
-          title: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-        };
-      }, ms);
-      records.push(frame);
-      last = await page.screenshot({ path: path.join(shots, `${engine}-expand-p${part}-${String(ms).padStart(3, '0')}.png`), ...(ms === 420 ? still : {}) });
-    }
-    t.check(`motion part ${part}: titles never overlap`, records.every((f) => f.old === 0 || f.next === 0));
-    t.check(`motion part ${part}: destination typography never scales`, records.every((f) => JSON.stringify(f.title) === JSON.stringify(records[0].title)));
-    const colour = part === 1 ? 'rgb(236, 141, 177)' : 'rgb(186, 148, 230)';
-    t.check(`motion part ${part}: ground stays in the chosen theme`, records.every((f) => f.background === colour));
-    fs.writeFileSync(path.join(shots, `${engine}-expand-p${part}.json`), JSON.stringify(records, null, 2));
-    await page.evaluate(() => window.captured.forEach((a) => a.finish()));
-    await page.waitForFunction(() => !document.documentElement.classList.contains('leaving'));
-    const live = await page.screenshot({ path: path.join(shots, `${engine}-expand-p${part}-live.png`), ...still });
-    t.check(`motion part ${part}: final animation frame equals live page`, await sameImage(page, last, live));
-    await page.goto(base + slug);
-    await page.evaluate(() => document.fonts.ready);
+    const live = await capture(`expand-p${part}`, `.panel:nth-child(${part}) .title a`, slug);
+    await capture(`p${part}-browser-back-index`, () => page.goBack(), '');
+    await capture(`index-browser-forward-p${part}`, () => page.goForward(), slug);
+    await capture(`p${part}-all-parts`, '#card a.all', '');
+    await capture(`all-parts-back-p${part}`, () => page.goBack(), slug);
+    await capture(`all-parts-forward-index-p${part}`, () => page.goForward(), '');
+    // Keep the original direct-load equality check.
+    await page.goto(base + slug); await ready(page);
     const direct = await page.screenshot(still);
-    t.check(`motion part ${part}: expanded deck equals direct load`, await sameImage(page, live, direct));
+    if (live) t.check(`motion part ${part}: expanded deck equals direct load`, await sameImage(page, live, direct));
   }
+  // Both cross-part links and both directions of traversal across those entries.
+  await page.goto(base + P2);
+  await capture('direct-p2-start-with-p1', '#card .series a:not(.all)', P1);
+  await capture('previous-link-back-p2', () => page.goBack(), P2);
+  await capture('previous-link-forward-p1', () => page.goForward(), P1);
+  await verdict(page);
+  await capture('p1-verdict-next-p2', '#card a.next', P2);
+  await capture('next-link-back-p1', () => page.goBack(), P1);
+  await capture('next-link-forward-p2', () => page.goForward(), P2);
+  await capture('direct-document-all-parts', '#card a.all', '');
+  await page.goBack(); await ready(page);
+  await page.reload(); await ready(page);
+  await capture('reloaded-deck-forward-index', () => page.goForward(), '');
+  await capture('reloaded-index-back-deck', () => page.goBack(), P2);
+  // Returning from a long, scrolled verdict must also preserve its first frame.
+  await page.goto(base + P1); await verdict(page);
+  await capture('verdict-all-parts', '#card a.all', '');
+  t.check('motion flows: no page errors', errors.length === 0, errors.join(' | '));
   await page.close();
 }
 
-export async function navigationEdges(browser, options, base, t) {
+export async function navigationEdges(browser, options, base, t, shots, engine) {
   const ctx = await browser.newContext({ ...options, reducedMotion: 'reduce' });
   const page = await ctx.newPage();
   await page.goto(base);
   await page.evaluate(() => { window.sameDocument = true; });
   await page.locator('.panel:nth-child(2) .title a').tap();
   await page.waitForURL(base + 'worth-your-time/');
-  const instant = await page.evaluate(() => window.sameDocument && !document.querySelector('.route-deck, .departing-panel') && !document.documentElement.classList.contains('leaving'));
-  t.check('reduced motion: instant same-document deck', instant);
+  const instantLanding = await page.evaluate(() => window.sameDocument && !document.querySelector('.route-deck, .departing-panel') && !document.documentElement.classList.contains('leaving'));
+  t.check('reduced motion: instant same-document deck', instantLanding);
   await page.locator('#act-yes').tap();
   t.check('reduced motion: mounted deck accepts input', await page.locator('#app').getAttribute('data-screen') === 'question');
   await page.goBack();
@@ -145,15 +289,61 @@ export async function navigationEdges(browser, options, base, t) {
   await page.unrouteAll({ behavior: 'wait' });
 
   await page.goto(base);
+  await page.evaluate(() => { window.fallbackDocument = true; });
   await page.route('**/worth-your-time/', (route) => route.request().resourceType() === 'fetch'
     ? route.fulfill({ status: 503, body: 'Unavailable' }) : route.continue());
   await page.locator('.panel:nth-child(2) .title a').tap();
   await page.waitForURL(base + 'worth-your-time/');
   await page.waitForFunction(() => !!document.querySelector('#card h1'));
-  t.check('failed enhancement falls back to real deck navigation', await page.locator('.index-page').count() === 0);
+  t.check('failed enhancement falls back to real deck navigation', await page.evaluate(() => !window.fallbackDocument && !!window.deckApp));
   await page.goto(base + 'index.html?from=qa#parts');
   await page.evaluate(() => { window.aliasDocument = true; });
   await page.waitForTimeout(150);
   t.check('index.html, query and fragment do not trigger a reload loop', await page.evaluate(() => !!window.aliasDocument && !document.querySelector('.index-page').hidden));
+  // The same complete flow matrix under reduced motion: zero route animations,
+  // no overlay, correct destination, and no replacement of the document.
+  await page.unrouteAll({ behavior: 'wait' });
+  const instant = async (name, action, target) => {
+    await ready(page);
+    if (typeof action === 'string') await page.locator(action).scrollIntoViewIfNeeded();
+    const before = await page.screenshot(still);
+    await page.evaluate(() => {
+      window.instantDocument = true;
+      window.routeAnimationCalls = 0;
+      if (!window.countAnimations) {
+        window.countAnimations = true;
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (...args) { window.routeAnimationCalls++; return animate.apply(this, args); };
+      }
+    });
+    if (typeof action === 'string') await page.locator(action).tap(); else await action();
+    await page.waitForURL(base + target);
+    t.check(`reduced motion ${name}: instant and same document`, await page.evaluate((isHome) =>
+      window.instantDocument && window.routeAnimationCalls === 0 &&
+      !document.documentElement.classList.contains('leaving') &&
+      !document.querySelector('.route-deck, .route-paper, .route-outgoing, .departing-panel') &&
+      (isHome ? !window.deckApp && !document.querySelector('.index-page').hidden :
+        !!window.deckApp && !document.querySelector('#app').inert), target === ''));
+    const after = await page.screenshot(still);
+    const { png } = await evidence(page, [before, after], ['before', 'instant']);
+    fs.writeFileSync(path.join(shots, `${engine}-reduced-${name}-strip.png`), Buffer.from(png, 'base64'));
+  };
+  for (const [n, slug] of [[1, P1], [2, P2]]) {
+    await page.goto(base);
+    await instant(`index-p${n}`, `.panel:nth-child(${n}) .title a`, slug);
+    await instant(`p${n}-browser-back`, () => page.goBack(), '');
+    await instant(`p${n}-browser-forward`, () => page.goForward(), slug);
+    await instant(`p${n}-all-parts`, '#card a.all', '');
+    await instant(`p${n}-all-parts-back`, () => page.goBack(), slug);
+    await instant(`p${n}-all-parts-forward`, () => page.goForward(), '');
+  }
+  await page.goto(base + P2);
+  await instant('previous-part', '#card .series a:not(.all)', P1);
+  await instant('previous-part-back', () => page.goBack(), P2);
+  await instant('previous-part-forward', () => page.goForward(), P1);
+  await verdict(page);
+  await instant('next-part', '#card a.next', P2);
+  await instant('next-part-back', () => page.goBack(), P1);
+  await instant('next-part-forward', () => page.goForward(), P2);
   await ctx.close();
 }
