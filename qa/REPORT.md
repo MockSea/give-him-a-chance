@@ -1,90 +1,132 @@
-# Round 3: continuous coloured surfaces
+# Round 4: motion fixes
 
-Implemented, uncommitted. Browser verification is pending your run. No browser
-or server was launched; existing `qa/shots/` files are round-2 evidence.
+Implemented, not committed. **Browser verification is blocked in this session.**
+The supplied round-3 WebKit frame sheet and existing `qa/shots/` PNG/JSON evidence
+were inspected; those files are not round-4 results.
 
-## Changes
+## Motion changes
 
-- Replaced the independently fading preview, temporary paper and deck column
-  with opaque DOM snapshots at their measured live dimensions and scroll offset.
-  Index snapshots also retain the dark page background; deck snapshots pin their
-  theme. The destination layout is established before animation. Cleanup removes
-  the overlay rather than changing a fixed deck back into a different layout.
-  These changes address the reported first-frame and final-frame mismatches;
-  pixel equality still needs confirmation in Chromium and WebKit. Incidental
-  CSS animation poses are copied rather than restarted, and destination motion
-  pauses until the overlay is removed to preserve the handoff pose.
-- The selected panel's ground expands to the viewport in 450ms with
-  `cubic-bezier(.4,0,.2,1)`. It progressively covers its siblings, which reappear
-  as it contracts on all-parts links and history returns. This uses the brief's
-  expressly allowed “covered” alternative to flex-squeezing the siblings, so
-  their text keeps its original size and wrapping. The selected panel is removed
-  from the underlying snapshot's paint, preventing doubled rounded edges.
-- Preview and deck text occupy complementary clips on that solid surface.
-  Neither layer changes opacity or scales. Part-to-part navigation uses a solid
-  destination-colour sweep, in part order, over the outgoing deck.
-- Kept the existing distinct pink/lilac panel and deck grounds. Each panel already
-  exactly matches its destination ground; no palette change was necessary.
-- Kept direct-load/reload routing, serialized preparation, history entry behavior,
-  stale-fetch protection, same-clock reversal for index transitions, and instant
-  reduced motion. Corrected the reversal's deck scroll target when the index was
-  scrolled. Snapshots are inert and have no IDs.
-- Updated DESIGN.md to describe the implemented motion.
+- All index, all-parts, history and cross-part transitions now use three phases:
+  outgoing text fades to zero in 120ms; opaque material moves for 450ms with the
+  original `cubic-bezier(.4,0,.2,1)` easing; incoming text fades in over 120ms
+  after landing. Total: 690ms. Typography keeps its endpoint size and wrapping.
+  Sibling/masthead copy follows the same phases. Paper and ground layers never
+  fade. This follows the latest user instruction, superseding the contradictory
+  text-presence requirement in `qa/brief/no-flash.md`.
+- Snapshot views have isolated stacking contexts, and the moving surface stacks
+  above the index. Previously `.mini`/`.credit` z-indices escaped the index view
+  and painted over the deck, including the first return frame. This explains
+  the visible sibling overlap and apparent near-cut on Back. Browser Back and
+  the all-parts link still invoke the same return builder and shrink keyframes.
+  Every animation shares a start time; Back during an expansion reverses that
+  clock without settling to the deck first.
+- The selected original panel paints the stationary index endpoint. Only during
+  travel does the clipped proxy replace it. This avoids the extra rounded-edge
+  antialiasing seen when clipping an already rounded panel over another ground.
+- Snapshots pin the resolved `--card-shadow` before the root theme changes.
+  Lilac shadows previously changed to pink during navigation: the shadow custom
+  property was resolved at its defining ancestor, not its consuming descendant.
+- Source snapshots preserve computed focus outlines. Return focus is established
+  before capturing the index destination, avoiding a focus ring appearing only
+  at cleanup. Keyboard focus remains available; the check was not suppressed.
 
-## QA changes
+## Each supplied failure
 
-`qa/motion.mjs` retains the full link/history/direct-load/reload/verdict matrix,
-with touch activation in both engines. It now samples 0, 16, …, 448, 450ms and
-checks source/first-frame and final-frame/live equality using the existing
-200-pixel, 16-channel-value raster tolerance. The tolerance was not enlarged.
-It also checks reference timing/easing, many distinct intermediate states,
-constant typography, opaque layers, monotonic expansion/contraction, complementary
-text clips, solid part sweeps, cleanup and direct-load appearance equality.
+`qa/brief/r3-failures.txt` contains **23 lines, all WebKit**, not the full reported
+52 Chromium + 57 WebKit failures. Every supplied line is classified below.
+The abbreviated `no sampled page` labels refer to the existing ground-patch check.
+No unprovided failure names or new engine totals are inferred.
 
-Every sampled frame is inspected inside the moving surface (the whole viewport
-for part sweeps). Legitimate dark index gutters outside that surface are excluded.
-The pixel check detects page-ground-coloured patches using a centre and eight
-neighbours, spaced 7 CSS pixels apart, distinguishing holes from ordinary glyph
-strokes. A 32px interior margin excludes rounded-edge antialiasing. Any detected
-patch fails. This is a sampled interior-patch check, not a proof against every
-single-pixel seam or an unsampled temporal frame.
+| Line | Flow | Failed check | Classification and correction |
+| --- | --- | --- | --- |
+| 1 | all-parts-forward-index-p2 | final frame = live | Real defect: doubled rounded endpoint edge; original-panel endpoint handoff. |
+| 2 | all-parts-forward-index-p2 | no sampled page | Broken check: ink mistaken for page ground; diagnostic probe replaces colour inference. |
+| 3 | direct-p2-start-with-p1 | first frame = source | Real defect: source shadow changes theme; pin resolved shadow. |
+| 4 | direct-p2-start-with-p1 | no sampled page | Broken check: black title strokes; diagnostic probe. |
+| 5 | previous-link-back-p2 | no sampled page | Broken check: foreground ink treated as a hole; diagnostic probe. |
+| 6 | previous-link-forward-p1 | first frame = source | Real defect: source shadow changes theme; pin resolved shadow. |
+| 7 | previous-link-forward-p1 | no sampled page | Broken check: foreground ink treated as a hole; diagnostic probe. |
+| 8 | p1-verdict-next-p2 | no sampled page | Broken check: legitimate verdict/button/title ink; diagnostic probe. |
+| 9 | next-link-back-p1 | first frame = source | Real defect: source shadow changes theme; pin resolved shadow. |
+| 10 | next-link-back-p1 | no sampled page | Broken check: foreground ink treated as a hole; diagnostic probe. |
+| 11 | next-link-forward-p2 | no sampled page | Broken check: foreground ink treated as a hole; diagnostic probe. |
+| 12 | direct-document-all-parts | first frame = source | Real defect: sibling paints above deck; isolate and order snapshot layers (also pin source shadow). |
+| 13 | direct-document-all-parts | final frame = live | Real defect: doubled rounded endpoint edge; original-panel endpoint handoff. |
+| 14 | direct-document-all-parts | no sampled page | Broken check: foreground ink mistaken for holes, even on the incorrectly layered sibling; diagnostic probe now tests sibling occlusion explicitly. |
+| 15 | reloaded-deck-forward-index | first frame = source | Real defect: sibling paints above deck; isolate and order layers (also pin source shadow). |
+| 16 | reloaded-deck-forward-index | final frame = live | Real defect: late focus ring plus rounded endpoint mismatch; capture destination focus and use original panel. |
+| 17 | reloaded-deck-forward-index | no sampled page | Broken check: foreground ink mistaken for holes; diagnostic probe. |
+| 18 | reloaded-index-back-deck | first frame = source | Real defect: clone loses focus ring plus rounded endpoint mismatch; preserve outline and use original panel. |
+| 19 | reloaded-index-back-deck | final frame = live | Real defect: sibling remains above final deck; isolate/order layers. |
+| 20 | reloaded-index-back-deck | no sampled page | Broken check: foreground ink mistaken for holes; diagnostic probe. |
+| 21 | verdict-all-parts | first frame = source | Real defect: sibling overlays scrolled verdict; isolate/order layers. |
+| 22 | verdict-all-parts | final frame = live | Real defect: doubled rounded endpoint edge; original-panel endpoint handoff. |
+| 23 | verdict-all-parts | no sampled page | Broken check: ink includes solid black button fill; diagnostic probe. |
 
-The same region records weighted RGB luminance and dark/coloured ink presence.
-A luminance dip exceeding 0.08 below the lower endpoint fails; visible ink must
-remain above both 0.05% of the region and 10% of the lower endpoint's ink fraction.
-These are explicit heuristics for blank/dim handoffs, not OCR or perceptual proof.
-JSON measurements and before/frame/live contact sheets remain available for
-review. `qa/qa.mjs` now recognizes the new stage in lifecycle checks and runs the
-new motion checks alongside the existing functional and reduced-motion matrix.
+Evidence from the existing PNGs, using the unchanged >16 channel-difference
+threshold: lines 3/6/9 each differ in 2,899 pixels concentrated in the under-card
+shadow; lines 1/13 differ in 1,197 rounded-edge pixels; line 22 in 1,161.
+Lines 16/18 additionally show the missing/late title focus outline. Lines
+12/15/19/21 differ in more than 700,000 pixels because a sibling paints on top.
+These are product defects, not reasons to widen the 200-pixel tolerance.
 
-## Brief conflict and limits
+The old nine-point ground detector also returns false positives on legitimate
+foreground: in `webkit-direct-p2-start-with-p1-000.png`, its three hits are at
+CSS coordinates (208,106), (214,106), (216,106), inside the black title. On the
+scrolled verdict its hit at (194,486) is in the black share button. Ground and
+ink both use `#17111a`; colour alone cannot identify the painting layer.
 
-The reference requests outgoing text fading away and incoming text fading in
-only after landing. The no-flash brief expressly forbids that disappearance and
-reappearance, including a blank text interval. Both cannot be implemented
-literally. I prioritized no-flash: fixed-size destination content is revealed by
-clips during growth, with no separate 300ms text fade or blank ground beat.
-The surface still uses the reference's 450ms timing and colour continuity.
+## QA corrections and additions
 
-Native traversal between separate documents and network-error full-navigation
-fallbacks remain browser-controlled. Mid-transition index reversal is continuous;
-an interruption of a part-to-part sweep settles the pending route before handling
-the next history intent, as in the existing router. Deterministic frame seeking
-checks appearance, not real-device frame rate, browser chrome or actual bfcache
-restoration. Review the strips and interruption behavior on-device.
+`qa/motion.mjs` retains the complete link/history/direct-load/reload/scrolled-
+verdict matrix and the same endpoint tolerance (200 pixels; >16 channel delta).
+No failing endpoint check was loosened or removed.
 
-## Validation and handoff
+- Sample the full 690ms at roughly 16ms intervals, plus 119/120/121 and
+  569/570/571ms to test phase boundaries. Require the 450ms material segment and
+  original easing, monotonic geometry, constant typography and opaque grounds.
+- Replace the complementary-text-clips and continuous-text-presence assertions.
+  They measured the superseded brief and allowed two different titles on screen
+  at once. Require zero overlap of outgoing/incoming copy, zero copy opacity
+  throughout movement, intermediate fade values, and stationary geometry during
+  both text fades. Keep luminance measurements and their original 0.08 bound.
+- Replace ambiguous black-patch detection with a separate diagnostic render at
+  each paused frame. Temporarily colour page ground and unselected index panels
+  `rgb(3,255,7)` without changing layout, clipping, opacity, visibility or stacking.
+  Any sampled probe colour inside the selected surface fails. It distinguishes
+  legitimate ink from actual holes and detects sibling paint above the surface.
+  Keep the 32px rounded-edge exclusion and 2 CSS-pixel sample spacing; require
+  nonempty samples and **zero** leaks. Ordinary frame PNGs remain unmodified.
+  Save probe contact sheets and metrics alongside the normal evidence.
+- Add `realtimeFrames` to both engines: actual taps and browser Back, no WAAPI
+  pause/seek, screenshots about 50ms apart plus a requestAnimationFrame trace.
+  Require many intermediate sizes, a sustained transition, no simultaneous copy,
+  and the reverse index path for all-parts and Back. Start capturing concurrently
+  with the history command, so awaiting its promise cannot hide the transition.
+- Existing reduced-motion, rapid navigation, history, reload, failed-fetch,
+  lifecycle and functional deck checks remain in the runner.
+
+## Validation and limits
 
 Passed: `node --check index.js`, `node --check app.js`,
-`node --check qa/motion.mjs`, `node --check qa/qa.mjs`, and `git diff --check`.
-No engine pass totals or new screenshots are claimed.
+`node --check qa/motion.mjs`, `node --check qa/qa.mjs`, `git diff --check`.
+Old evidence was analysed with Pillow; no new browser screenshot is claimed.
 
-Run:
+Attempted the full runner with the installed Playwright at
+`/Users/moxy/projects/dsa-6528-viz/node_modules/playwright/index.mjs`.
+It fails before serving with `listen EPERM: operation not permitted 127.0.0.1`.
+A separate WebKit launch also aborts (`Abort trap: 6`, exit 134). This session
+cannot request an elevated run. New runtime assertions and visual outcomes
+therefore remain unverified; **no round-4 pass totals are claimed**.
+
+Run outside this restricted session:
 
 ```sh
-node qa/qa.mjs [path/to/playwright/index.mjs]
+node qa/qa.mjs /Users/moxy/projects/dsa-6528-viz/node_modules/playwright/index.mjs
 ```
 
-The runner starts its own local server and executes Chromium (390×844 touch)
-and WebKit (iPhone 15, tap). Inspect the regenerated strips in `qa/shots/`,
-particularly part 2 expansion and the scrolled-verdict returns.
+Review the regenerated deterministic, probe and `*-realtime-*-strip.png` sheets,
+especially WebKit browser Back and scrolled-verdict returns. Raster sampling is
+not proof of every pixel or real-device frame pacing. Traversals between separate
+native documents remain browser-controlled; the same-document router covers the
+reported index/open/all-parts/open2/Back sequence.

@@ -128,7 +128,9 @@ html.index, html.index body { background: var(--ink); }
    scrolled verdict; no document-ground layer can leak through its sweep. */
 .index-page[hidden] { display: none; }
 .route-stage { position: fixed; inset: 0; z-index: 30; overflow: hidden; pointer-events: none; }
-.route-view, .route-surface, .route-preview { position: absolute; inset: 0; }
+.route-view, .route-surface, .route-preview { position: absolute; inset: 0; isolation: isolate; }
+.route-stage > .route-view { z-index: 0; }
+.route-stage > .route-surface { z-index: 1; }
 .route-stage * { animation: none !important; }
 .route-stage .panel { transition: none; }
 html.leaving body { pointer-events: none; }

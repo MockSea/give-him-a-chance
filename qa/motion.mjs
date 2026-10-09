@@ -24,6 +24,9 @@ async function sameImage(page, a, b, maxPixels = 200) {
   }, [`data:image/png;base64,${a.toString('base64')}`, `data:image/png;base64,${b.toString('base64')}`, maxPixels]);
 }
 
+const DURATION = 690, EXIT = 120, LAND = 570;
+const TIMES = [...new Set([...Array.from({ length: 44 }, (_, i) => i * 16), 119, 120, 121, 569, 570, 571, DURATION])].sort((a, b) => a - b);
+
 const P1 = 'give-him-a-chance/';
 const P2 = 'worth-your-time/';
 const settled = (page) => page.waitForFunction(() =>
@@ -65,7 +68,7 @@ async function evidence(page, buffers, labels, regions = []) {
         // Stay inside the rounded moving boundary, not the legitimate dark
         // masthead/gutters outside it. Sample at CSS-pixel density on DPR 2/3.
         const at = (x, y) => (Math.floor(y * sy) * c.width + Math.floor(x * sx)) * 4;
-        const dark = (k) => [23, 17, 26].every((v, j) => Math.abs(px[k + j] - v) < 5);
+        const exposedGround = (k) => [3, 255, 7].every((v, j) => Math.abs(px[k + j] - v) < 5);
         const b = region.coverage;
         for (let y = Math.max(8, b.top + 32); y < Math.min(region.viewport.height - 8, b.bottom - 32); y += 2) {
           for (let x = Math.max(8, b.left + 32); x < Math.min(region.viewport.width - 8, b.right - 32); x += 2) {
@@ -73,9 +76,9 @@ async function evidence(page, buffers, labels, regions = []) {
             count++;
             luminance += (.2126 * px[k] + .7152 * px[k + 1] + .0722 * px[k + 2]) / 255;
             if (Math.max(px[k], px[k + 1], px[k + 2]) < 190 && Math.min(px[k], px[k + 1], px[k + 2]) < 110) ink++;
-            // A ground-colour patch has ink-colour neighbours in all eight
-            // directions. Individual glyph strokes must not count as holes.
-            if (dark(k) && [-7, 0, 7].every((dy) => [-7, 0, 7].every((dx) => dark(at(x + dx, y + dy))))) groundLeaks++;
+            // Probe-only paint marks page ground and sibling content green.
+            // Black glyphs/buttons are legitimate ink, never a ground leak.
+            if (exposedGround(k)) groundLeaks++;
           }
         }
       }
@@ -127,9 +130,16 @@ async function sample(page, action, name, destination, shots, engine, t) {
     fs.writeFileSync(path.join(shots, `${prefix}-strip.png`), Buffer.from(png, 'base64'));
     return;
   }
-  const records = [], buffers = [before], labels = ['before'];
+  const probeStyle = await page.addStyleTag({ content: `
+    html.route-ground-probe, html.route-ground-probe body,
+    .route-ground-probe .route-stage,
+    .route-ground-probe .route-stage > .route-view:has(.index-page) { background: rgb(3,255,7) !important; }
+    .route-ground-probe .route-stage .index-page .panel:not([data-route-selected]),
+    .route-ground-probe .route-stage .index-page .panel:not([data-route-selected]) * { background: rgb(3,255,7) !important; color: rgb(3,255,7) !important; }
+  ` });
+  const records = [], buffers = [before], labels = ['before'], probes = [];
   let last;
-  for (const ms of [...Array.from({ length: 29 }, (_, i) => i * 16), 450]) {
+  for (const ms of TIMES) {
     records.push(await page.evaluate((ms) => {
       window.captured.forEach((a) => { a.currentTime = ms; });
       const rect = (el) => {
@@ -158,36 +168,53 @@ async function sample(page, action, name, destination, shots, engine, t) {
         ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
         : { left: inset[3], top: inset[0], right: innerWidth - inset[1], bottom: innerHeight - inset[2] };
       return { ms, kind: stage.dataset.kind, titles, moving, clips, coverage,
-        textInsets: stage.dataset.kind === 'index' ? [insets(clips[2]), insets(clips[3])] : null,
+        copy: [...stage.querySelectorAll('[data-route-copy]')].map((el) => ({
+          role: el.dataset.routeCopy, opacity: +getComputedStyle(el).opacity,
+        })),
         viewport: { width: innerWidth, height: innerHeight },
         opacity: layers.map((el) => +getComputedStyle(el).opacity),
         background: getComputedStyle(surface).backgroundColor,
-        timings: window.captured.map((a) => ({ duration: a.effect.getTiming().duration, easing: a.effect.getTiming().easing })),
+        timings: window.captured.filter((a) => a.effect.getKeyframes().some((f) => f.clipPath)).map((a) => ({
+          duration: a.effect.getTiming().duration, frames: a.effect.getKeyframes().map((f) => ({ offset: f.computedOffset, easing: f.easing })),
+        })),
       };
     }, ms));
     last = await page.screenshot({ path: path.join(shots, `${prefix}-${String(ms).padStart(3, '0')}.png`) });
     buffers.push(last); labels.push(`${ms}ms`);
+    await page.evaluate(() => document.documentElement.classList.add('route-ground-probe'));
+    probes.push(await page.screenshot());
+    await page.evaluate(() => document.documentElement.classList.remove('route-ground-probe'));
   }
   t.check(`${name}: first frame preserves the source`, await sameImage(page, before, buffers[1]));
   t.check(`${name}: intermediate frame differs from both endpoints`,
-    !(await sameImage(page, buffers[14], buffers[1])) && !(await sameImage(page, buffers[14], last)));
+    !(await sameImage(page, buffers[1 + TIMES.indexOf(336)], buffers[1])) && !(await sameImage(page, buffers[1 + TIMES.indexOf(336)], last)));
   t.check(`${name}: motion has many intermediate states`, new Set(records.map((f) => JSON.stringify(f.clips))).size > 10);
   t.check(`${name}: typography never scales`, records.every((f) =>
     f.moving.every((m) => Math.abs(m.a - 1) < .001 && Math.abs(m.d - 1) < .001 && Math.abs(m.b) < .001 && Math.abs(m.c) < .001) &&
     f.titles.every((title, i) => Math.abs(title.width - records[0].titles[i].width) < .1 &&
       Math.abs(title.height - records[0].titles[i].height) < .1 && title.font === records[0].titles[i].font)));
   t.check(`${name}: solid layers never fade`, records.every((f) => f.opacity.every((v) => v === 1)));
-  t.check(`${name}: 450ms material motion with reference easing`, records.every((f) =>
-    f.timings.every((v) => v.duration === 450 && v.easing.replaceAll(' ', '') === 'cubic-bezier(0.4,0,0.2,1)')));
+  t.check(`${name}: 450ms material motion between 120ms text phases`, records.every((f) =>
+    f.timings.length > 0 && f.timings.every((v) => v.duration === DURATION &&
+      v.frames.length === 4 && Math.abs(v.frames[1].offset * v.duration - EXIT) < .001 &&
+      Math.abs(v.frames[2].offset * v.duration - LAND) < .001 &&
+      v.frames[1].easing.replaceAll(' ', '') === 'cubic-bezier(0.4,0,0.2,1)')));
+  t.check(`${name}: outgoing and incoming copy never coexist`, records.every((f) =>
+    f.copy.length > 0 && !(f.copy.some((c) => c.role === 'outgoing' && c.opacity > 0) &&
+      f.copy.some((c) => c.role === 'incoming' && c.opacity > 0))));
+  t.check(`${name}: text fully exits before movement and enters only after landing`, records.every((f) =>
+    f.copy.every((c) => (c.role === 'outgoing' ? f.ms < EXIT : f.ms > LAND) || c.opacity === 0)));
+  t.check(`${name}: text phases are fades, not cuts`, ['outgoing', 'incoming'].every((role) =>
+    records.some((f) => f.copy.some((c) => c.role === role && c.opacity > .1 && c.opacity < .9))));
+  const clipAt = (ms) => JSON.stringify(records.find((f) => f.ms === ms).clips);
+  t.check(`${name}: surface is stationary throughout both text fades`,
+    clipAt(0) === clipAt(EXIT) && clipAt(LAND) === clipAt(DURATION));
   if (records[0].kind === 'index') {
     t.check(`${name}: selected ground stays one colour`, records.every((f) => f.background === records[0].background));
     const areas = records.map((f) => (f.coverage.right - f.coverage.left) * (f.coverage.bottom - f.coverage.top));
     const sign = Math.sign(areas.at(-1) - areas[0]);
     t.check(`${name}: selected surface grows or contracts monotonically`, sign !== 0 && areas.every((v, i) => !i || sign * (v - areas[i - 1]) >= -.1));
-    t.check(`${name}: text clips meet without overlap or an empty gap`, records.every((f) => {
-      const [preview, deck] = f.textInsets;
-      return Math.abs(preview[1] + deck[3] - f.viewport.width) < .1;
-    }));
+
   } else {
     t.check(`${name}: part to part uses an opaque sweep`, records.every((f) => f.opacity.every((v) => v === 1)) &&
       records[0].clips.at(-1) !== records.at(-1).clips.at(-1));
@@ -201,16 +228,17 @@ async function sample(page, action, name, destination, shots, engine, t) {
     !document.querySelector('.route-stage') &&
     (document.querySelector('#app') ? !document.querySelector('#app').inert && document.querySelector('.index-page').hidden :
       !document.querySelector('.index-page').inert && !document.querySelector('.index-page').hidden)));
+  await probeStyle.evaluate((el) => el.remove());
   const { png, metrics } = await evidence(page, buffers, labels, [null, ...records, null]);
   const sampled = metrics.slice(1, -1);
-  t.check(`${name}: no sampled page-ground patches inside the moving surface`,
-    sampled.every((m) => m.samples > 0 && m.groundLeaks === 0), JSON.stringify(sampled));
+  const probe = await evidence(page, probes, TIMES.map((ms) => `${ms}ms probe`), records);
+  t.check(`${name}: no page ground or sibling paints inside the selected surface`,
+    probe.metrics.every((m) => m.samples > 0 && m.groundLeaks === 0), JSON.stringify(probe.metrics));
+  fs.writeFileSync(path.join(shots, `${prefix}-probe-strip.png`), Buffer.from(probe.png, 'base64'));
   const floor = Math.min(sampled[0].luminance, sampled.at(-1).luminance);
   t.check(`${name}: card-area luminance does not dip and recover`, sampled.every((m) => m.luminance >= floor - .08));
-  const textFloor = Math.min(sampled[0].textFraction, sampled.at(-1).textFraction) * .1;
-  t.check(`${name}: visible text never disappears during the handoff`, sampled.every((m) => m.textFraction > Math.max(.0005, textFloor)));
   fs.writeFileSync(path.join(shots, `${prefix}-strip.png`), Buffer.from(png, 'base64'));
-  fs.writeFileSync(path.join(shots, `${prefix}.json`), JSON.stringify({ records, metrics }, null, 2));
+  fs.writeFileSync(path.join(shots, `${prefix}.json`), JSON.stringify({ records, metrics, probe: probe.metrics }, null, 2));
   return live;
 }
 
@@ -259,6 +287,64 @@ export async function motionFrames(ctx, base, shots, engine, t) {
   await page.goto(base + P1); await verdict(page);
   await capture('verdict-all-parts', '#card a.all', '');
   t.check('motion flows: no page errors', errors.length === 0, errors.join(' | '));
+  await page.close();
+}
+
+// Wall-clock capture complements deterministic seeking: a route that is built
+// correctly but immediately cancelled by history/lifecycle events must fail.
+export async function realtimeFrames(ctx, base, shots, engine, t) {
+  const page = await ctx.newPage();
+  await page.goto(base); await ready(page);
+  await page.addStyleTag({ content: '.nudge { animation: none !important; }' });
+  for (const [name, action, target] of [
+    ['open', '.panel:nth-child(1) .title a', P1],
+    ['all-parts', '#card a.all', ''],
+    ['open2', '.panel:nth-child(2) .title a', P2],
+    ['browser-back', () => page.goBack({ waitUntil: 'commit' }), ''],
+  ]) {
+    await ready(page);
+    const buffers = [await page.screenshot()], labels = ['before'];
+    await page.evaluate(() => {
+      window.routeTrace = [];
+      window.traceRoute = true;
+      const frame = (now) => {
+        if (!window.traceRoute) return;
+        const stage = document.querySelector('.route-stage');
+        if (stage) {
+          const surface = stage.querySelector('.route-surface');
+          const copy = [...stage.querySelectorAll('[data-route-copy]')];
+          const visible = (role) => copy.some((el) => el.dataset.routeCopy === role && +getComputedStyle(el).opacity > 0);
+          window.routeTrace.push({ now, clip: getComputedStyle(surface).clipPath,
+            returning: stage.dataset.returning, overlap: visible('outgoing') && visible('incoming') });
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+    // Record concurrently with the browser history command; waiting for a
+    // navigation promise first can omit the very frames under investigation.
+    const actionPromise = typeof action === 'string' ? page.locator(action).tap() : action();
+    const start = Date.now();
+    for (let n = 0; n < 20; n++) {
+      await page.waitForTimeout(50);
+      buffers.push(await page.screenshot()); labels.push(`${Date.now() - start}ms`);
+      const done = await page.evaluate(() => window.routeTrace.length && !window.routeBusy);
+      if (done) break;
+    }
+    await actionPromise;
+    await page.waitForURL(base + target); await ready(page);
+    const trace = await page.evaluate(() => { window.traceRoute = false; return window.routeTrace; });
+    t.check(`realtime ${name}: complete transition survives history/lifecycle events`,
+      trace.length > 10 && trace.at(-1).now - trace[0].now >= DURATION - 50);
+    t.check(`realtime ${name}: many painted surface sizes`, new Set(trace.map((f) => f.clip)).size > 10);
+    t.check(`realtime ${name}: no simultaneous outgoing/incoming text`, trace.length > 0 && trace.every((f) => !f.overlap));
+    if (name === 'all-parts' || name === 'browser-back') {
+      t.check(`realtime ${name}: uses the reverse index transition`, trace.length > 0 && trace.every((f) => f.returning === 'true'));
+    }
+    const { png } = await evidence(page, buffers, labels);
+    fs.writeFileSync(path.join(shots, `${engine}-realtime-${name}-strip.png`), Buffer.from(png, 'base64'));
+    fs.writeFileSync(path.join(shots, `${engine}-realtime-${name}.json`), JSON.stringify(trace, null, 2));
+  }
   await page.close();
 }
 

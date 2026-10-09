@@ -7,7 +7,9 @@
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   history.scrollRestoration = 'manual';
   const full = 'inset(0px 0px 0px 0px round 0px)';
-  const timing = { duration: 450, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' };
+  const duration = 690, exitEnd = 120 / duration, moveEnd = 570 / duration;
+  const timing = { duration, easing: 'linear', fill: 'both' };
+  const materialEase = 'cubic-bezier(.4,0,.2,1)';
   let index, links, routes, original;
   let app = document.getElementById('app'), skip = document.querySelector('body > .skip');
   let current = app ? address() : home, scroll = 0, revision = 0, pending = false;
@@ -175,6 +177,16 @@
         }
       }
     });
+    // Theme-dependent custom properties are resolved where they are defined.
+    // Pin the source shadow before the root switches from lilac to pink (or back).
+    copy.style.setProperty('--card-shadow', getComputedStyle(node).getPropertyValue('--card-shadow'));
+    originals.forEach((el, i) => {
+      const style = getComputedStyle(el);
+      // A DOM clone does not inherit :focus-visible. Preserve its painted pose.
+      copies[i].style.outline = style.outline;
+      copies[i].style.outlineOffset = style.outlineOffset;
+      if (el.matches(':focus-visible')) copies[i].style.borderRadius = style.borderRadius;
+    });
     copy.hidden = false;
     copy.dataset.theme = node.dataset.theme || 'pink';
     Object.assign(copy.style, {
@@ -186,6 +198,27 @@
     view.style.background = getComputedStyle(document.body).backgroundColor;
     view.append(copy);
     return view;
+  }
+  function material(el, from, to) {
+    return animate(el, [
+      { clipPath: from, offset: 0 },
+      { clipPath: from, offset: exitEnd, easing: materialEase },
+      { clipPath: to, offset: moveEnd },
+      { clipPath: to, offset: 1 },
+    ]);
+  }
+  function copyMotion(view, role) {
+    // Select non-overlapping content roots: nested emphasis/links retain their
+    // normal opacity, colour and wrapping. Paper and grounds remain opaque.
+    view.querySelectorAll('.mini > *, .card > *, .dock, .masthead, .colophon').forEach((el) => {
+      el.dataset.routeCopy = role;
+      const opacity = getComputedStyle(el).opacity;
+      animate(el, role === 'outgoing' ? [
+        { opacity, offset: 0 }, { opacity: 0, offset: exitEnd }, { opacity: 0, offset: 1 },
+      ] : [
+        { opacity: 0, offset: 0 }, { opacity: 0, offset: moveEnd }, { opacity, offset: 1 },
+      ]);
+    });
   }
   function transition(source, destination, from, to) {
     const stage = extra(document.createElement('div'));
@@ -199,6 +232,7 @@
       stage.append(indexView);
       const href = returning ? from : to;
       const selected = [...indexView.querySelectorAll('.panel')][[...routes.keys()].indexOf(href)];
+      selected.dataset.routeSelected = 'true';
       const r = selected.getBoundingClientRect();
       const radius = getComputedStyle(selected).borderRadius;
       const surface = document.createElement('div');
@@ -208,8 +242,9 @@
       preview.className = 'route-preview';
       const card = selected.cloneNode(true);
       card.dataset.theme = selected.dataset.theme || 'pink';
+      card.style.setProperty('--card-shadow', getComputedStyle(selected).getPropertyValue('--card-shadow'));
       Object.assign(card.style, { position: 'absolute', left: `${r.left}px`, top: `${r.top}px`,
-        width: `${r.width}px`, height: `${r.height}px`, margin: '0' });
+        width: `${r.width}px`, height: `${r.height}px`, margin: '0', backgroundColor: 'transparent' });
       // Paint the selected card once, avoiding doubled antialiased corners
       // at the source/return endpoint. Its layout slot still stays in place.
       selected.style.visibility = 'hidden';
@@ -218,18 +253,36 @@
       stage.append(surface);
       const inset = `inset(${r.top}px ${innerWidth - r.right}px ${innerHeight - r.bottom}px ${r.left}px round ${radius})`;
       const frames = (a, b) => returning ? [b, a] : [a, b];
+      stage.dataset.returning = String(returning);
       // The selected colour covers its siblings. It never fades through them.
-      animate(surface, frames({ clipPath: inset }, { clipPath: full }));
-      // Two complementary clips exchange fixed-size copy on an opaque ground.
-      // Unlike opacity fades, they cannot superimpose two different titles.
-      animate(preview, frames({ clipPath: full }, { clipPath: `inset(0px ${innerWidth}px 0px 0px)` }));
-      animate(deckView, frames({ clipPath: `inset(0px 0px 0px ${innerWidth}px)` }, { clipPath: full }));
+      material(surface, ...frames(inset, full));
+      // Clips exchange only opaque material while all route copy is invisible.
+      material(preview, ...frames(full, `inset(0px ${innerWidth}px 0px 0px)`));
+      material(deckView, ...frames(`inset(0px 0px 0px ${innerWidth}px)`, full));
+      copyMotion(preview, returning ? 'incoming' : 'outgoing');
+      copyMotion(deckView, returning ? 'outgoing' : 'incoming');
+      // Sibling/masthead copy also waits for the returning surface to land.
+      copyMotion(indexView, returning ? 'incoming' : 'outgoing');
+      // At the index endpoint use the original panel, with its single rounded
+      // border, instead of stacking two antialiased versions of that edge.
+      animate(surface, returning
+        ? [{ visibility: 'visible', offset: 0 }, { visibility: 'visible', offset: moveEnd },
+          { visibility: 'hidden', offset: moveEnd }, { visibility: 'hidden', offset: 1 }]
+        : [{ visibility: 'hidden', offset: 0 }, { visibility: 'hidden', offset: exitEnd },
+          { visibility: 'visible', offset: exitEnd }, { visibility: 'visible', offset: 1 }]);
+      animate(selected, returning
+        ? [{ visibility: 'hidden', offset: 0 }, { visibility: 'hidden', offset: moveEnd },
+          { visibility: 'visible', offset: moveEnd }, { visibility: 'visible', offset: 1 }]
+        : [{ visibility: 'visible', offset: 0 }, { visibility: 'visible', offset: exitEnd },
+          { visibility: 'hidden', offset: exitEnd }, { visibility: 'hidden', offset: 1 }]);
     } else {
       stage.dataset.kind = 'swap';
       stage.append(source, destination);
       destination.classList.add('route-surface');
       const forward = [...routes.keys()].indexOf(to) > [...routes.keys()].indexOf(from);
-      animate(destination, [{ clipPath: forward ? `inset(0px 0px 0px ${innerWidth}px)` : `inset(0px ${innerWidth}px 0px 0px)` }, { clipPath: full }]);
+      material(destination, forward ? `inset(0px 0px 0px ${innerWidth}px)` : `inset(0px ${innerWidth}px 0px 0px)`, full);
+      copyMotion(source, 'outgoing');
+      copyMotion(destination, 'incoming');
     }
   }
   async function navigate(href, push = false) {
@@ -273,6 +326,8 @@
         root.classList.add('index'); document.body.classList.add('index');
         index.hidden = false;
         window.scrollTo(0, scroll);
+        // Establish the destination focus pose before taking its snapshot.
+        links.find((a) => new URL(a.getAttribute('href'), home).href === from)?.focus({ preventScroll: true });
       }
       if (push) history.pushState(null, '', href);
       complete = href === home ? () => restIndex(from) : restDeck;
@@ -282,6 +337,9 @@
       pausedLive.forEach((a) => a.pause());
       const destination = snapshot(destinationNode);
       transition(source, destination, from, href);
+      // Every phase uses one clock, including rapid Back/Forward reversals.
+      const startTime = document.timeline.currentTime;
+      animations.forEach((a) => { if (a.playState !== 'paused') a.startTime = startTime; });
       // Live layout is already the destination layout. Cleanup only removes
       // snapshots, so the final sampled frame and the live frame agree.
       root.classList.add('leaving');

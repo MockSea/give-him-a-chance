@@ -11,7 +11,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { motionFrames, navigationEdges } from './motion.mjs';
+import { motionFrames, realtimeFrames, navigationEdges } from './motion.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, 'qa', 'shots');
@@ -618,9 +618,10 @@ async function engineRun(name, browserType, ctxOpts, smallOpts, base) {
     await plain.addInitScript(() => { delete window.PageRevealEvent; });
     await runIndex(plain, base, t, { engine: name, width, tag: 'fallback', fallback: true });
   }
-  // Round 3: endpoint pixels, opaque expansion/reverse/sweep, and per-frame
-  // page-ground, luminance and text-presence checks over the full flow matrix.
+  // Endpoint pixels, phased text, opaque surfaces and diagnostic ground
+  // probes over the full matrix, plus unpaused wall-clock history capture.
   await motionFrames(ctx, base, SHOTS, name, t);
+  await realtimeFrames(ctx, base, SHOTS, name, t);
   await navigationEdges(browser, ctxOpts, base, t, SHOTS, name);
   await browser.close();
   return t.results;
