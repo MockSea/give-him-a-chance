@@ -1,76 +1,196 @@
-// The series index. Tapping a panel opens that part.
-//
-// Where the browser has cross-document view transitions (style.css declares
-// @view-transition), a plain navigation does the work: the panel and its mini
-// card carry the same view-transition-names as the deck's shell and start
-// card, so the browser morphs one into the other, and back again on Back.
-//
-// Elsewhere, this grows a sheet in the panel's colour over the page first,
-// then navigates. The final URL is the deck's real URL either way, so deep
-// links and the back button behave.
+// Enhance index -> deck navigation in this document. Direct deck loads still
+// use their own HTML. No second navigation, snapshots, or scaled typography.
 (() => {
   'use strict';
-
-  const TAKEOVER_MS = 420;
-  const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
-  const STUCK_MS = 5000; // if we haven't left the page by then, the navigation didn't happen
-
-  const native = 'PageRevealEvent' in window;
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const home = new URL('./', location.href).href;
   const root = document.documentElement;
+  const index = document.querySelector('.index-page');
+  const links = [...index.querySelectorAll('.panel .title a')];
+  const routes = new Map(links.map((a) => [a.href, {}]));
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const meta = [...document.querySelectorAll('meta[name], meta[property]')];
+  const original = { title: document.title, content: meta.map((m) => m.content) };
+  let engine, pending = false, revision = 0, current = home, scroll = 0;
+  let animations = [], preview, panel, app, skip;
 
-  let leaving = false;
-  let stuckTimer = 0;
+  function script(src) {
+    return new Promise((resolve, reject) => {
+      const node = document.createElement('script');
+      node.src = src;
+      node.onload = () => { node.remove(); resolve(); };
+      node.onerror = () => { node.remove(); reject(new Error(`Could not load ${src}`)); };
+      document.head.append(node);
+    });
+  }
 
-  // Back to rest: no sheet, taps live again. Runs on every pageshow, which
-  // covers a return from the bfcache, where the page comes back exactly as
-  // it was left, mid-takeover.
-  function reset() {
-    leaving = false;
-    clearTimeout(stuckTimer);
+  // Intent-only HTML warming: no deck engine/data on the index's critical path.
+  function warm(href) {
+    const route = routes.get(href);
+    if (!route.html) route.html = fetch(href).then((r) => {
+      if (!r.ok) throw new Error(`Could not load ${href}`);
+      return r.text();
+    }).catch((err) => { route.html = null; throw err; });
+    return route.html;
+  }
+
+  async function prepare(href) {
+    const route = routes.get(href);
+    if (route.doc) return route;
+    const html = await warm(href);
+    engine ||= script(new URL('app.js', home).href).catch((err) => { engine = null; throw err; });
+    await Promise.all([engine, script(new URL('deck.js', href).href), document.fonts.ready]);
+    route.doc = new DOMParser().parseFromString(html, 'text/html');
+    if (!route.doc.querySelector('#app')) throw new Error('Missing deck');
+    // Engine links normally resolve relative to the deck document.
+    const absolute = (link) => link && { ...link, href: new URL(link.href, href).href };
+    route.deck = { ...window.DECK, INDEX: absolute(window.DECK.INDEX || { href: '../', text: 'all parts' }),
+      NEXT: absolute(window.DECK.NEXT), SERIES: { ...window.DECK.SERIES, prev: absolute(window.DECK.SERIES?.prev) } };
+    return route;
+  }
+
+  function cancelMotion() {
+    animations.forEach((a) => a.cancel());
+    animations = [];
+    preview?.remove(); preview = null;
+    panel?.classList.remove('departing'); panel = null;
     root.classList.remove('leaving');
-    document.querySelectorAll('.takeover').forEach((n) => n.remove());
+    index.inert = false;
+    if (app) app.inert = false;
   }
 
-  function arm() {
-    leaving = true;
-    root.classList.add('leaving');
-    stuckTimer = setTimeout(reset, STUCK_MS);
+  function finish() {
+    cancelMotion();
+    index.hidden = true;
+    index.removeAttribute('style');
+    root.classList.remove('index');
+    document.body.classList.remove('index');
+    app.classList.remove('route-deck');
+    app.style.removeProperty('clip-path');
+    app.querySelector('.col').style.removeProperty('opacity');
+    app.querySelector('h1')?.focus({ preventScroll: true });
   }
 
-  function takeover(panel, href) {
-    const r = panel.getBoundingClientRect();
-    const look = getComputedStyle(panel);
-
-    const sheet = document.createElement('div');
-    sheet.className = 'takeover';
-    sheet.style.background = look.backgroundColor;
-    sheet.setAttribute('aria-hidden', 'true');
-
-    const mini = panel.querySelector('.mini').cloneNode(true);
-    mini.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
-    sheet.append(mini);
-    document.body.append(sheet);
-
-    const from = { top: `${r.top}px`, left: `${r.left}px`, width: `${r.width}px`, height: `${r.height}px`, borderRadius: look.borderRadius };
-    const to = { top: '0px', left: '0px', width: `${window.innerWidth}px`, height: `${window.innerHeight}px`, borderRadius: '0px' };
-    sheet.animate([from, to], { duration: TAKEOVER_MS, easing: EASE, fill: 'forwards' });
-    mini.animate([{ opacity: 1 }, { opacity: 0 }], { duration: TAKEOVER_MS * 0.6, easing: 'ease-out', fill: 'forwards' });
-
-    setTimeout(() => location.assign(href), TAKEOVER_MS + 40);
+  function restoreIndex() {
+    const previous = current;
+    revision++;
+    pending = false;
+    cancelMotion();
+    window.deckApp?.dispose();
+    window.deckApp = null;
+    window.DECK = null;
+    app?.remove(); app = null;
+    skip?.remove(); skip = null;
+    current = home;
+    root.removeAttribute('data-theme');
+    root.classList.add('index');
+    document.body.classList.add('index');
+    index.hidden = false;
+    index.removeAttribute('style');
+    document.title = original.title;
+    meta.forEach((m, i) => { m.content = original.content[i]; });
+    window.scrollTo(0, scroll);
+    links.find((a) => new URL(a.getAttribute('href'), home).href === previous)?.focus({ preventScroll: true });
   }
 
-  function onTap(e) {
-    // Leave modified clicks and non-primary buttons to the browser (new tab etc.)
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    if (leaving) { e.preventDefault(); return; } // a second tap while the first is in flight
-    arm();
-    if (native || reduceMotion) return; // plain navigation; the browser (or nothing) animates it
-    e.preventDefault();
-    takeover(e.currentTarget.closest('.panel'), e.currentTarget.href);
+  function mount(route, href) {
+    window.deckApp?.dispose();
+    app?.remove(); skip?.remove();
+    window.DECK = route.deck;
+    root.dataset.theme = route.doc.documentElement.dataset.theme || '';
+    document.title = route.doc.title;
+    meta.forEach((m) => {
+      const key = m.hasAttribute('name') ? 'name' : 'property';
+      const replacement = route.doc.querySelector(`meta[${key}="${m.getAttribute(key)}"]`);
+      if (replacement) m.content = replacement.content;
+    });
+    app = route.doc.querySelector('#app').cloneNode(true);
+    app.classList.add('route-deck');
+    skip = route.doc.querySelector('.skip').cloneNode(true);
+    document.body.append(skip, app);
+    window.deckApp = window.mountDeck();
+    current = href;
   }
 
-  document.querySelectorAll('.panel .title a').forEach((a) => a.addEventListener('click', onTap));
-  window.addEventListener('pageshow', reset);
-  window.addEventListener('pagehide', () => clearTimeout(stuckTimer));
+  async function open(a) {
+    if (pending) return;
+    pending = true;
+    const ticket = ++revision;
+    const href = a.href;
+    try {
+      const route = await prepare(href);
+      if (ticket !== revision) return;
+      scroll = window.scrollY;
+      panel = a.closest('.panel');
+      const r = panel.getBoundingClientRect();
+      const radius = getComputedStyle(panel).borderRadius;
+      preview = panel.cloneNode(true);
+      preview.classList.add('departing-panel');
+      // Keep the index typography context and the chosen part's own tokens.
+      preview.dataset.theme = panel.dataset.theme || '';
+      Object.assign(preview.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+      preview.setAttribute('aria-hidden', 'true');
+      preview.inert = true;
+      index.style.cssText = `position:fixed;top:${-scroll}px;left:0;width:100%`;
+      mount(route, href);
+      history.pushState(null, '', href);
+      if (reduced.matches) { finish(); pending = false; return; }
+      root.classList.add('leaving');
+      index.inert = app.inert = true;
+      panel.classList.add('departing');
+      document.body.append(preview);
+      const inset = `inset(${r.top}px ${innerWidth - r.right}px ${innerHeight - r.bottom}px ${r.left}px round ${radius})`;
+      animations = [
+        app.animate([{ clipPath: inset }, { clipPath: 'inset(0px 0px 0px 0px round 0px)' }],
+          { duration: 420, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'both' }),
+        preview.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, fill: 'both' }),
+        app.querySelector('.col').animate([{ opacity: 0 }, { opacity: 1 }],
+          { delay: 120, duration: 240, easing: 'ease-out', fill: 'both' }),
+      ];
+      await Promise.all(animations.map((a) => a.finished.catch(() => {})));
+      if (ticket !== revision) return;
+      finish();
+      pending = false;
+    } catch {
+      if (ticket === revision) { restoreIndex(); location.assign(href); }
+    }
+  }
+
+  links.forEach((a) => {
+    for (const event of ['pointerenter', 'pointerdown', 'focus']) {
+      a.addEventListener(event, () => { if (!navigator.connection?.saveData) warm(a.href).catch(() => {}); }, { passive: true });
+    }
+    a.addEventListener('click', (e) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      open(a);
+    });
+  });
+  function address() {
+    const url = new URL(location.href);
+    url.hash = url.search = '';
+    url.pathname = url.pathname.replace(/\/index\.html$/, '/');
+    return url.href;
+  }
+  function reconcile() {
+    const href = address();
+    if (href === current) return; // fragment traversal keeps the current screen
+    if (href === home) restoreIndex();
+    else if (routes.get(href)?.doc) {
+      revision++;
+      pending = false;
+      cancelMotion();
+      mount(routes.get(href), href);
+      finish();
+    } else location.reload();
+  }
+  window.addEventListener('popstate', reconcile);
+  window.addEventListener('pagehide', () => {
+    revision++;
+    pending = false;
+    if (app) finish(); else cancelMotion();
+  });
+  window.addEventListener('pageshow', () => {
+    if (address() !== current) reconcile();
+    else if (app) finish(); else cancelMotion();
+  });
 })();

@@ -1,6 +1,17 @@
 // The deck engine. Everything specific to one deck (questions, verdicts, title,
 // credit) comes from window.DECK, set by that page's deck.js. Each main question
 // can carry one rescue question that runs when the main answer fails.
+window.mountDeck = function () {
+const lifecycle = new AbortController();
+const timers = new Set();
+let disposed = false;
+function later(fn, ms) {
+  const id = window.setTimeout(() => { timers.delete(id); if (!disposed) fn(); }, ms);
+  timers.add(id);
+  return id;
+}
+function frame(fn) { requestAnimationFrame(() => { if (!disposed) fn(); }); }
+
 const { CREDIT, TITLE_HTML, TITLE_TEXT, LEDE, STEPS, YES_LINE, YES_ROASTS, VERDICT } = window.DECK;
 const NEXT = window.DECK.NEXT || null; // link to the next part, under a YES
 const SERIES = window.DECK.SERIES || null; // which part this is, on the credit line
@@ -228,15 +239,15 @@ function paint(next, direction, from) {
   const instant = reduceMotion.matches || direction === 'none' || direction === 'deal';
   if (!instant && direction === 'settle') {
     card.classList.add('settle');
-    window.setTimeout(() => card.classList.remove('settle'), SETTLE_MS + 50);
+    later(() => card.classList.remove('settle'), SETTLE_MS + 50);
   }
   if (!instant && direction === 'back') {
     card.classList.add(from === 'yes' ? 'from-right' : 'from-left');
     animating = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    frame(() => frame(() => {
       card.classList.add('returning');
       card.classList.remove('from-right', 'from-left');
-      window.setTimeout(() => { card.classList.remove('returning'); animating = false; }, FLY_MS + 50);
+      later(() => { card.classList.remove('returning'); animating = false; }, FLY_MS + 50);
     }));
   }
   focusCard(card);
@@ -320,7 +331,7 @@ function snapBack(card) {
   card.style.setProperty('--yes', 0);
   card.style.setProperty('--no', 0);
   $deck.style.setProperty('--p', 0);
-  window.setTimeout(() => { card.classList.remove('snapping'); $deck.classList.remove('snapping'); }, SNAP_MS + 30);
+  later(() => { card.classList.remove('snapping'); $deck.classList.remove('snapping'); }, SNAP_MS + 30);
 }
 
 // Answer the current question by sending the card off the matching side. Used
@@ -339,7 +350,7 @@ function swipe(value, dy = 0) {
   if (reduceMotion.matches) {
     animating = true;
     commit();
-    window.setTimeout(() => { animating = false; }, INPUT_LOCK_MS);
+    later(() => { animating = false; }, INPUT_LOCK_MS);
     return;
   }
 
@@ -352,7 +363,7 @@ function swipe(value, dy = 0) {
   card.style.setProperty('--yes', value === 'yes' ? 1 : 0);
   card.style.setProperty('--no', value === 'no' ? 1 : 0);
   $deck.style.setProperty('--p', 1);
-  window.setTimeout(() => { animating = false; commit(); }, FLY_MS);
+  later(() => { animating = false; commit(); }, FLY_MS);
 }
 
 // ---- actions ----------------------------------------------------------------
@@ -414,19 +425,32 @@ function flash(btn, label) {
   window.clearTimeout(flashTimer);
   btn.classList.add('copied');
   btn.textContent = label;
-  flashTimer = window.setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = btn.dataset.original; }, 1800);
+  flashTimer = later(() => { btn.classList.remove('copied'); btn.innerHTML = btn.dataset.original; }, 1800);
 }
 
 $back.addEventListener('click', back);
 $no.addEventListener('click', () => swipe('no'));
 $yes.addEventListener('click', () => swipe('yes'));
 document.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+  if ($app.inert || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
   if (e.key === 'Backspace' && state.screen !== 'play') return;
   if (e.key === 'Backspace' && !e.target.closest('input, textarea')) { e.preventDefault(); back(); return; }
   if (positionAfter(state.history).verdict) return;
   if (e.key === 'y' || e.key === 'Y') swipe('yes');
   if (e.key === 'n' || e.key === 'N') swipe('no');
-});
+}, { signal: lifecycle.signal });
 
 paint(state, 'none');
+return {
+  get state() { return state; },
+  get animating() { return animating; },
+  positionAfter, screenOf,
+  dispose() {
+    disposed = true;
+    lifecycle.abort();
+    timers.forEach(clearTimeout);
+  },
+};
+};
+
+if (document.getElementById('app')) window.deckApp = window.mountDeck();

@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="index.css">
 </head>
 <body class="index">
+  <div class="index-page" data-theme="pink">
   <a class="skip" href="#parts">Skip to the parts</a>
 
   <header class="masthead">
@@ -26,12 +27,11 @@
   <!--
     One panel per part. To add part 3: make a folder (part-3-slug/) with its own
     index.html + deck.js like the others, then copy a <li> below and change
-    the part number, the title, the lede, the href, and the --vt-* pair
-    (part-3 / card-3). Give it data-theme="..." if it has its own colour in
+    the part number, the title, the lede, the href. Give it data-theme="..." if it has its own colour in
     style.css; leave the attribute off for pink.
   -->
   <ol class="parts" id="parts">
-    <li class="panel" style="--vt-part: part-1; --vt-card: card-1">
+    <li class="panel">
       <article class="mini">
         <span class="part">Part 1</span>
         <h2 class="title"><a href="give-him-a-chance/">Give him <em>a chance?</em></a></h2>
@@ -39,7 +39,7 @@
         <p class="credit">Flowchart by <a href="https://www.instagram.com/sheritajanielle/" rel="noopener">Sherita Janielle (@sheritajanielle)</a></p>
       </article>
     </li>
-    <li class="panel" data-theme="lilac" style="--vt-part: part-2; --vt-card: card-2">
+    <li class="panel" data-theme="lilac">
       <article class="mini">
         <span class="part">Part 2</span>
         <h2 class="title"><a href="worth-your-time/">Is he worth <em>your time?</em></a></h2>
@@ -57,6 +57,7 @@
     <p class="noscript-note">The parts open without JavaScript; the decks inside need it to deal the cards.</p>
   </noscript>
 
+  </div>
   <script src="index.js" defer></script>
 </body>
 </html>

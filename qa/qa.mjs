@@ -11,6 +11,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { motionFrames, navigationEdges } from './motion.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, 'qa', 'shots');
@@ -59,7 +60,7 @@ function ledger(engine) {
 
 // ---- page helpers ------------------------------------------------------------
 
-const idle = (page) => page.waitForFunction(() => !animating && !document.querySelector('.card.flying, .card.returning'));
+const idle = (page) => page.waitForFunction(() => !window.deckApp.animating && !document.documentElement.classList.contains('leaving') && !document.querySelector('.card.flying, .card.returning'));
 
 async function tapAndSettle(page, selector) {
   await page.locator(selector).tap();
@@ -71,6 +72,7 @@ const flip = (v) => (v === 'yes' ? 'no' : 'yes');
 
 async function view(page) {
   return page.evaluate(() => {
+    const { state, positionAfter, screenOf } = window.deckApp;
     const pos = positionAfter(state.history);
     const h1 = document.querySelector('#card h1');
     const note = document.querySelector('#card .note');
@@ -379,6 +381,7 @@ async function runIndex(ctx, base, t, opts) {
   const shot = (k) => page.screenshot({ path: path.join(SHOTS, `${opts.engine}-index${opts.tag ? `-${opts.tag}` : ''}-${k}.png`) });
 
   await page.goto(base);
+  await page.evaluate(() => { window.indexDocument = true; });
   await page.waitForFunction(() => document.fonts.status === 'loaded');
   const info = await page.evaluate(() => {
     const bg = (el) => getComputedStyle(el).backgroundColor;
@@ -405,10 +408,12 @@ async function runIndex(ctx, base, t, opts) {
       byline: !!document.querySelector('.colophon .byline a[href="https://github.com/MockSea"]'),
       font: document.fonts.check('800 40px Bricolage'),
       native: 'PageRevealEvent' in window,
+      eagerDeck: performance.getEntriesByType('resource').some((r) => /\/(app|deck)\.js$/.test(r.name)),
     };
   });
   t.check(P('static title, description and og tags'), info.title === INDEX_TITLE && info.og === INDEX_TITLE && info.desc.length > 20, `${info.title} / ${info.og}`);
   t.check(P('font loads'), info.font);
+  t.check(P('initial index does not load deck scripts'), !info.eagerDeck);
   t.check(P('two panels, in order, pointing at their decks'), info.panels.length === 2
     && info.panels[0].part === 'Part 1' && info.panels[0].href === P1
     && info.panels[1].part === 'Part 2' && info.panels[1].href === P2, JSON.stringify(info.panels.map((p) => [p.part, p.href])));
@@ -417,7 +422,7 @@ async function runIndex(ctx, base, t, opts) {
   t.check(P('each panel shows title, lede and the Sherita credit'), info.panels.every((p) => p.shown && p.title.length > 8 && p.lede.length > 10 && p.credit.includes('@sheritajanielle')));
   t.check(P('built-by-Moxy byline present'), info.byline);
   t.check(P('noscript note present'), info.noscript);
-  t.check(P(opts.fallback ? 'view transitions hidden, JS fallback engaged' : 'cross-document view transitions available'), info.native === !opts.fallback);
+  t.check(P('navigation does not require cross-document view transitions'), !opts.fallback || !info.native);
   let h = await noHScroll(page);
   t.check(P(`no horizontal scroll at ${opts.width}`), h.ok, h.detail);
   await shot('start');
@@ -449,7 +454,8 @@ async function runIndex(ctx, base, t, opts) {
   });
   const open = async (n, deckPath) => {
     await Promise.all([page.waitForURL(`${base}${deckPath}`), page.locator(`.panel:nth-child(${n}) .title a`).tap()]);
-    await page.waitForFunction(() => !!window.DECK && !!document.querySelector('#card h1'));
+    await page.waitForFunction(() => !!window.DECK && !!document.querySelector('#card h1') && !document.documentElement.classList.contains('leaving'));
+    t.check(P('panel opens without replacing the document'), await page.evaluate(() => !!window.indexDocument));
     return landed();
   };
   const back = async () => {
@@ -514,8 +520,8 @@ async function runIndex(ctx, base, t, opts) {
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
   if (opts.fallback) {
-    const sheets = await page.evaluate(() => document.querySelectorAll('.takeover').length);
-    t.check(P('double tap grows one takeover sheet, not two'), sheets === 1, String(sheets));
+    const apps = await page.locator('#app').count();
+    t.check(P('double tap mounts one deck, not two'), apps <= 1, String(apps));
   }
   await nav;
   await page.waitForFunction(() => !!window.DECK);
@@ -524,21 +530,30 @@ async function runIndex(ctx, base, t, opts) {
   r = await back();
   t.check(P('back after a double tap returns to rest'), restOk(r), restDetail(r));
 
-  if (opts.fallback) {
-    // A bfcache restore hands the page back exactly as it was left, sheet and
-    // all; pageshow with persisted=true is the signal to put it back to rest.
-    // Playwright never restores from bfcache, so the event is dispatched by hand.
-    const tapping = page.locator('.panel:nth-child(2) .title a').tap();
-    await page.waitForTimeout(150);
-    const during = await page.evaluate(() => ({ leaving: document.documentElement.classList.contains('leaving'), sheets: document.querySelectorAll('.takeover').length }));
-    const afterShow = await page.evaluate(() => {
-      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
-      return { leaving: document.documentElement.classList.contains('leaving'), sheets: document.querySelectorAll('.takeover').length };
-    });
-    t.check(P('a persisted pageshow mid-takeover resets the page'), during.leaving && during.sheets === 1 && !afterShow.leaving && afterShow.sheets === 0, JSON.stringify({ during, afterShow }));
-    await tapping.catch(() => {});
-    await page.waitForURL(`${base}${P2}`);
-  }
+  // Forward uses the same document and a fresh, interactive start card.
+  await page.goForward();
+  await page.waitForFunction(() => !!document.querySelector('#card h1'));
+  d = await landed();
+  t.check(P('forward restores the deck start card'), d.screen === 'start' && d.card);
+  await back();
+
+  // Exercise the persisted-pageshow cleanup signal while expansion is active.
+  await page.locator('.panel:nth-child(2) .title a').tap();
+  await page.waitForFunction(() => !!document.querySelector('.route-deck'));
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  const restored = await page.evaluate(() => ({
+    leaving: document.documentElement.classList.contains('leaving'),
+    overlays: document.querySelectorAll('.route-deck, .departing-panel').length,
+    inert: document.getElementById('app').inert,
+  }));
+  t.check(P('persisted pageshow settles the live deck'), !restored.leaving && !restored.overlays && !restored.inert, JSON.stringify(restored));
+  await back();
+
+  // Back during motion cancels the pending completion instead of hiding index.
+  await page.locator('.panel:nth-child(1) .title a').tap();
+  await page.waitForFunction(() => document.documentElement.classList.contains('leaving'));
+  r = await back();
+  t.check(P('back during expansion leaves the index interactive'), restOk(r), restDetail(r));
 
   t.check(P('no console errors or failed requests'), errors.length === 0, errors.join(' | '));
   await page.close();
@@ -595,12 +610,14 @@ async function engineRun(name, browserType, ctxOpts, smallOpts, base) {
   }
   if (name === 'chromium') {
     // The same index checks with cross-document view transitions hidden from
-    // the page, so the JS takeover fallback is the path under test.
+    // the page, proving the same-document path is independent of that API.
     const plain = await browser.newContext(ctxOpts);
     await plain.addInitScript(INIT);
     await plain.addInitScript(() => { delete window.PageRevealEvent; });
     await runIndex(plain, base, t, { engine: name, width, tag: 'fallback', fallback: true });
   }
+  await motionFrames(ctx, base, SHOTS, name, t);
+  await navigationEdges(browser, ctxOpts, base, t);
   await browser.close();
   return t.results;
 }
