@@ -4,6 +4,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// The swipe hint wiggles forever; freeze CSS animations for the end-state comparisons.
+const still = { animations: 'disabled' };
+
+// Chromium re-rasterises shadows after compositing ends; a few dozen pixels
+// shift by a shade. Count clearly different pixels instead of comparing bytes.
+async function sameImage(page, a, b, maxPixels = 200) {
+  return page.evaluate(async ([a, b, maxPixels]) => {
+    const load = (s) => new Promise((r) => { const i = new Image(); i.onload = () => r(i); i.src = s; });
+    const [A, B] = await Promise.all([load(a), load(b)]);
+    if (A.width !== B.width || A.height !== B.height) return false;
+    const px = (i) => { const c = new OffscreenCanvas(i.width, i.height).getContext('2d'); c.drawImage(i, 0, 0); return c.getImageData(0, 0, i.width, i.height).data; };
+    const [da, db] = [px(A), px(B)];
+    let n = 0;
+    for (let k = 0; k < da.length; k += 4) {
+      if (Math.max(Math.abs(da[k] - db[k]), Math.abs(da[k + 1] - db[k + 1]), Math.abs(da[k + 2] - db[k + 2])) > 16) n++;
+    }
+    return n <= maxPixels;
+  }, [`data:image/png;base64,${a.toString('base64')}`, `data:image/png;base64,${b.toString('base64')}`, maxPixels]);
+}
+
 export async function motionFrames(ctx, base, shots, engine, t) {
   const page = await ctx.newPage();
   for (const [part, slug] of [[1, 'give-him-a-chance/'], [2, 'worth-your-time/']]) {
@@ -38,7 +58,7 @@ export async function motionFrames(ctx, base, shots, engine, t) {
         };
       }, ms);
       records.push(frame);
-      last = await page.screenshot({ path: path.join(shots, `${engine}-expand-p${part}-${String(ms).padStart(3, '0')}.png`) });
+      last = await page.screenshot({ path: path.join(shots, `${engine}-expand-p${part}-${String(ms).padStart(3, '0')}.png`), ...(ms === 420 ? still : {}) });
     }
     t.check(`motion part ${part}: titles never overlap`, records.every((f) => f.old === 0 || f.next === 0));
     t.check(`motion part ${part}: destination typography never scales`, records.every((f) => JSON.stringify(f.title) === JSON.stringify(records[0].title)));
@@ -47,12 +67,12 @@ export async function motionFrames(ctx, base, shots, engine, t) {
     fs.writeFileSync(path.join(shots, `${engine}-expand-p${part}.json`), JSON.stringify(records, null, 2));
     await page.evaluate(() => window.captured.forEach((a) => a.finish()));
     await page.waitForFunction(() => !document.documentElement.classList.contains('leaving'));
-    const live = await page.screenshot({ path: path.join(shots, `${engine}-expand-p${part}-live.png`) });
-    t.check(`motion part ${part}: final animation frame equals live page`, last.equals(live));
+    const live = await page.screenshot({ path: path.join(shots, `${engine}-expand-p${part}-live.png`), ...still });
+    t.check(`motion part ${part}: final animation frame equals live page`, await sameImage(page, last, live));
     await page.goto(base + slug);
     await page.evaluate(() => document.fonts.ready);
-    const direct = await page.screenshot();
-    t.check(`motion part ${part}: expanded deck equals direct load`, live.equals(direct));
+    const direct = await page.screenshot(still);
+    t.check(`motion part ${part}: expanded deck equals direct load`, await sameImage(page, live, direct));
   }
   await page.close();
 }
