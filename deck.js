@@ -74,7 +74,6 @@
       q: 'Is he emotionally available?', pass: 'yes',
       rescue: {
         q: 'Is he in therapy?', pass: 'yes',
-        note: 'If we get to this point and the therapy is what’s holding us up, we have to decide on ourselves.',
       },
       why: { text: 'Not emotionally available, and not in therapy about it. It’s going to go ahead and be a no.', said: false },
       roast: [
