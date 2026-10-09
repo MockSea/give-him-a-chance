@@ -13,10 +13,10 @@ A deck of profile cards on Sherita's pink ground. The palette and ink are the re
 
 ## Cards
 
-- Start: title in blue with the last two words in ink, the lede, credit line and one full-width Start button at the bottom.
-- Question: eight progress marks across the top (done in ink, current in blue), the question in blue display type a little above centre. Rescue cards are white, question in ink, with her line "Every no doesn't mean it's over." No labels above the question.
+- Start: title in blue with the last words (the `<em>` in the deck's title) in ink, the lede, a "swipe to start" nudge and the credit line. Part 2's credit line starts with "Part 2 · start with part 1".
+- Question: one progress mark per main question across the top (done in ink, current in blue), the question in blue display type a little above centre. Rescue cards look the same; when a rescue has a `note`, her aside sits under the question in 17px `--ink-soft`, signed "— Sherita". The longest note still fits at 375x667. No labels above the question.
 - Stamps: YES (green, top left, tilted -16deg) and NOPE (red, top right, tilted 16deg) inside a 4px border, opacity driven by `--yes` and `--no` as the card moves.
-- Result: the verdict in a rubber-stamp box, rotated -4deg, slamming in from 1.8x scale. Green for yes, red for no. A yes throws eight small hearts out of the stamp once. Her quote is the headline under it; Moxy's one-liner follows in smaller, lighter type behind a dashed rule, signed "— Moxy". Then the tally, a "Change the last answer" link, the credit line, share and restart.
+- Result: the verdict in a rubber-stamp box, rotated -4deg, slamming in from 1.8x scale. Green for yes, red for no. A yes throws eight small hearts out of the stamp once. Her quote is the headline under it; Moxy's one-liner follows in smaller, lighter type behind a dashed rule, signed "— Moxy". On part 1's yes, a small blue "Part 2: is he worth your time? →" link follows. Then the tally, a "Change the last answer" link, the credit line, share and restart.
 
 ## Interaction
 
