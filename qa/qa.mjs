@@ -1,5 +1,5 @@
-// End-to-end QA for both decks, in chromium (390x844, touch) and webkit
-// (iPhone 15). Serves the repo itself with python3 -m http.server.
+// End-to-end QA for the index and both decks, in chromium (390x844, touch)
+// and webkit (iPhone 15). Serves the repo itself with python3 -m http.server.
 //
 //   node qa/qa.mjs [path/to/playwright/index.mjs]
 //
@@ -16,6 +16,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, 'qa', 'shots');
 const PW = process.argv[2] || process.env.PLAYWRIGHT || 'playwright';
 const { chromium, webkit, devices } = await import(PW);
+
+// Where each part lives under the site root.
+const P1 = 'give-him-a-chance/';
+const P2 = 'worth-your-time/';
+const INDEX_TITLE = "Sherita's flowcharts";
+// Computed colours of each theme's ground and paper, as the browser reports them.
+const PINK = { ground: 'rgb(236, 141, 177)', paper: 'rgb(247, 172, 199)' };
+const LILAC = { ground: 'rgb(186, 148, 230)', paper: 'rgb(212, 183, 245)' };
 
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -175,7 +183,14 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
     reel: [...document.querySelectorAll('#card .credit a')].find((a) => a.textContent === 'watch the reel')?.href,
     byline: !!document.querySelector('#card .credit .byline a[href="https://github.com/MockSea"]'),
     noscriptReel: document.querySelector('noscript').textContent.includes(window.DECK.CREDIT.reel),
+    themeColor: document.querySelector('meta[name="theme-color"]').content,
+    ground: getComputedStyle(document.getElementById('app')).backgroundColor,
+    paper: getComputedStyle(document.getElementById('card')).backgroundColor,
+    rgbTheme: (() => { const c = document.createElement('i'); c.style.color = document.querySelector('meta[name="theme-color"]').content; document.body.append(c); const v = getComputedStyle(c).color; c.remove(); return v; })(),
   }));
+  const theme = opts.theme || PINK;
+  t.check(P(`painted in ${opts.theme === LILAC ? 'lilac' : 'pink'}`), head.ground === theme.ground && head.paper === theme.paper, `${head.ground} / ${head.paper}`);
+  t.check(P('theme-color meta matches the ground'), head.rgbTheme === theme.ground, head.themeColor);
   t.check(P('<title> and og:title match the deck title'), head.title === deck.TITLE_TEXT && head.og === deck.TITLE_TEXT, `${head.title} / ${head.og}`);
   t.check(P('font loads (relative path resolves)'), head.font);
   t.check(P('start title and lede from deck'), head.h1 === deck.TITLE_HTML && head.lede === deck.LEDE);
@@ -323,21 +338,206 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
   // Cross-links
   await page.goto(url);
   await idle(page);
-  if (deck.SERIES) {
-    const series = await page.locator('#card .credit .series').textContent();
-    t.check(P('start credit line says which part'), series.startsWith(deck.SERIES.label), series);
-    await Promise.all([page.waitForURL(base), page.locator('#card .credit .series a').tap()]);
+  const series = await page.locator('#card .credit .series').textContent();
+  t.check(P('start credit line says which part'), deck.SERIES && series.startsWith(deck.SERIES.label), series);
+  if (deck.SERIES && deck.SERIES.prev) {
+    await Promise.all([page.waitForURL(`${base}${P1}`), page.locator('#card .credit .series a').first().tap()]);
     await page.waitForFunction(() => !!window.DECK);
     const there = await page.evaluate(() => ({ href: location.href, title: window.DECK && window.DECK.TITLE_TEXT }));
-    t.check(P('back-link goes to part 1'), there.href === base && there.title === 'Should you give this man a chance?', there.href);
+    t.check(P('back-link goes to part 1'), there.href === `${base}${P1}` && there.title === 'Should you give this man a chance?', there.href);
+    await page.goto(url);
+    await idle(page);
   }
+  await Promise.all([page.waitForURL(base), page.locator('#card .credit .series a.all').tap()]);
+  await page.waitForFunction(() => document.querySelectorAll('.panel').length > 0);
+  const index = await page.evaluate(() => ({ href: location.href, title: document.title, panels: document.querySelectorAll('.panel').length }));
+  t.check(P('"all parts" goes to the index'), index.href === base && index.title === INDEX_TITLE && index.panels === 2, `${index.href} ${index.title}`);
   if (deck.NEXT) {
+    await page.goto(url);
+    await idle(page);
     await start(page);
     await toStep(page, steps, steps.length);
-    await Promise.all([page.waitForURL(`${base}worth-your-time/`), page.locator('#card a.next').tap()]);
+    await Promise.all([page.waitForURL(`${base}${P2}`), page.locator('#card a.next').tap()]);
     await page.waitForFunction(() => !!window.DECK);
     const there = await page.evaluate(() => ({ href: location.href, title: window.DECK && window.DECK.TITLE_TEXT }));
-    t.check(P('part 2 link goes to part 2'), there.href === `${base}worth-your-time/` && there.title === 'Is he worth your time?', there.href);
+    t.check(P('part 2 link goes to part 2'), there.href === `${base}${P2}` && there.title === 'Is he worth your time?', there.href);
+  }
+
+  t.check(P('no console errors or failed requests'), errors.length === 0, errors.join(' | '));
+  await page.close();
+}
+
+// The series index: panels, colours, and the trips into each deck and back.
+async function runIndex(ctx, base, t, opts) {
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${r.url()}`); });
+  page.on('requestfailed', (r) => errors.push(`failed ${r.url()}`));
+  const P = (s) => `index${opts.tag ? ` (${opts.tag})` : ''}: ${s}`;
+  const shot = (k) => page.screenshot({ path: path.join(SHOTS, `${opts.engine}-index${opts.tag ? `-${opts.tag}` : ''}-${k}.png`) });
+
+  await page.goto(base);
+  await page.waitForFunction(() => document.fonts.status === 'loaded');
+  const info = await page.evaluate(() => {
+    const bg = (el) => getComputedStyle(el).backgroundColor;
+    const panels = [...document.querySelectorAll('.panel')].map((p) => {
+      const r = p.getBoundingClientRect();
+      return {
+        part: p.querySelector('.part').textContent.trim(),
+        title: p.querySelector('.title').textContent.trim(),
+        href: p.querySelector('.title a').getAttribute('href'),
+        lede: p.querySelector('.lede').textContent.trim(),
+        credit: (p.querySelector('.credit a[href*="instagram.com/sheritajanielle"]') || {}).textContent || '',
+        ground: bg(p),
+        paper: bg(p.querySelector('.mini')),
+        shown: r.width > 200 && r.height > 150 && r.right <= window.innerWidth + 0.5,
+      };
+    });
+    return {
+      panels,
+      title: document.title,
+      og: (document.querySelector('meta[property="og:title"]') || {}).content,
+      desc: (document.querySelector('meta[name="description"]') || {}).content || '',
+      themeColor: (document.querySelector('meta[name="theme-color"]') || {}).content,
+      noscript: !!document.querySelector('noscript'),
+      byline: !!document.querySelector('.colophon .byline a[href="https://github.com/MockSea"]'),
+      font: document.fonts.check('800 40px Bricolage'),
+      native: 'PageRevealEvent' in window,
+    };
+  });
+  t.check(P('static title, description and og tags'), info.title === INDEX_TITLE && info.og === INDEX_TITLE && info.desc.length > 20, `${info.title} / ${info.og}`);
+  t.check(P('font loads'), info.font);
+  t.check(P('two panels, in order, pointing at their decks'), info.panels.length === 2
+    && info.panels[0].part === 'Part 1' && info.panels[0].href === P1
+    && info.panels[1].part === 'Part 2' && info.panels[1].href === P2, JSON.stringify(info.panels.map((p) => [p.part, p.href])));
+  t.check(P('part 1 panel is pink'), info.panels[0].ground === PINK.ground && info.panels[0].paper === PINK.paper, `${info.panels[0].ground} / ${info.panels[0].paper}`);
+  t.check(P('part 2 panel is lilac'), info.panels[1].ground === LILAC.ground && info.panels[1].paper === LILAC.paper, `${info.panels[1].ground} / ${info.panels[1].paper}`);
+  t.check(P('each panel shows title, lede and the Sherita credit'), info.panels.every((p) => p.shown && p.title.length > 8 && p.lede.length > 10 && p.credit.includes('@sheritajanielle')));
+  t.check(P('built-by-Moxy byline present'), info.byline);
+  t.check(P('noscript note present'), info.noscript);
+  t.check(P(opts.fallback ? 'view transitions hidden, JS fallback engaged' : 'cross-document view transitions available'), info.native === !opts.fallback);
+  let h = await noHScroll(page);
+  t.check(P(`no horizontal scroll at ${opts.width}`), h.ok, h.detail);
+  await shot('start');
+  if (opts.quick) {
+    t.check(P('no console errors or failed requests'), errors.length === 0, errors.join(' | '));
+    await page.close();
+    return;
+  }
+
+  // ---- in and out of each deck
+  const atRest = () => page.evaluate(() => ({
+    url: location.href,
+    leaving: document.documentElement.classList.contains('leaving'),
+    sheets: document.querySelectorAll('.takeover').length,
+    panels: document.querySelectorAll('.panel').length,
+    first: document.querySelector('.panel').getBoundingClientRect().width,
+  }));
+  const restOk = (r) => r.url === base && !r.leaving && r.sheets === 0 && r.panels === 2 && r.first > 200;
+  const restDetail = (r) => `${r.url} leaving=${r.leaving} sheets=${r.sheets} panels=${r.panels}`;
+  const landed = () => page.evaluate(() => {
+    const card = document.getElementById('card');
+    const r = card ? card.getBoundingClientRect() : { width: 0, height: 0 };
+    return {
+      url: location.href,
+      title: window.DECK && window.DECK.TITLE_TEXT,
+      screen: document.getElementById('app') && document.getElementById('app').dataset.screen,
+      card: r.width > 200 && r.height > 300 && !!card.querySelector('h1'),
+    };
+  });
+  const open = async (n, deckPath) => {
+    await Promise.all([page.waitForURL(`${base}${deckPath}`), page.locator(`.panel:nth-child(${n}) .title a`).tap()]);
+    await page.waitForFunction(() => !!window.DECK && !!document.querySelector('#card h1'));
+    return landed();
+  };
+  const back = async () => {
+    await page.goBack({ waitUntil: 'commit' });
+    await page.waitForFunction((b) => location.href === b && !!document.querySelector('.parts'), base);
+    await page.waitForTimeout(700); // let any transition finish
+    return atRest();
+  };
+
+  const decks = [[1, P1, 'Should you give this man a chance?'], [2, P2, 'Is he worth your time?']];
+  for (const [n, deckPath, title] of decks) {
+    for (let round = 1; round <= 2; round += 1) {
+      const d = await open(n, deckPath);
+      t.check(P(`tap panel ${n} lands on part ${n}'s start card (round ${round})`), d.url === `${base}${deckPath}` && d.title === title && d.screen === 'start' && d.card, `${d.url} ${d.screen}`);
+      const r = await back();
+      t.check(P(`back from part ${n} returns to the index at rest (round ${round})`), restOk(r), restDetail(r));
+    }
+  }
+
+  // mid-transition frame, if one can be caught
+  try {
+    const tapping = page.locator('.panel:nth-child(2) .title a').tap();
+    await page.waitForTimeout(opts.fallback ? 200 : 160);
+    await shot('mid');
+    await tapping;
+    await page.waitForURL(`${base}${P2}`);
+    await page.waitForFunction(() => !!window.DECK);
+  } catch (e) {
+    console.log(`  note [${opts.engine}] no mid-transition frame: ${String(e).split('\n')[0]}`);
+    if (!page.url().startsWith(`${base}${P2}`)) await page.waitForURL(`${base}${P2}`);
+  }
+  let r = await back();
+  t.check(P('back after the mid-transition shot returns to rest'), restOk(r), restDetail(r));
+
+  // index -> part 1 -> YES -> part 2 link -> part 2, back, back
+  let d = await open(1, P1);
+  const steps = await page.evaluate(() => window.DECK.STEPS);
+  await start(page);
+  await toStep(page, steps, steps.length);
+  await Promise.all([page.waitForURL(`${base}${P2}`), page.locator('#card a.next').tap()]);
+  await page.waitForFunction(() => !!window.DECK && !!document.querySelector('#card h1'));
+  d = await landed();
+  t.check(P('index -> part 1 -> YES -> part 2'), d.url === `${base}${P2}` && d.title === 'Is he worth your time?' && d.screen === 'start' && d.card, d.url);
+  await page.goBack({ waitUntil: 'commit' });
+  await page.waitForFunction((u) => location.href === u && !!window.DECK, `${base}${P1}`);
+  const mid = await page.evaluate(() => ({ url: location.href, title: window.DECK.TITLE_TEXT }));
+  t.check(P('first back lands on part 1'), mid.url === `${base}${P1}` && mid.title === 'Should you give this man a chance?', mid.url);
+  r = await back();
+  t.check(P('second back lands on the index at rest'), restOk(r), restDetail(r));
+
+  // two quick taps: one navigation, one history entry, nothing stuck.
+  // Two fresh gotos first, so the index is the last history entry and the
+  // count can only grow: after the Backs above there are forward entries, and
+  // a navigation from mid-history drops them (a goto to the current URL only
+  // replaces, so step off the index and back on).
+  await page.goto(`${base}${P1}`);
+  await page.goto(base);
+  await page.waitForFunction(() => document.fonts.status === 'loaded');
+  const box = await page.locator('.panel:nth-child(1) .title').boundingBox();
+  const before = await page.evaluate(() => history.length);
+  const nav = page.waitForURL(`${base}${P1}`);
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  if (opts.fallback) {
+    const sheets = await page.evaluate(() => document.querySelectorAll('.takeover').length);
+    t.check(P('double tap grows one takeover sheet, not two'), sheets === 1, String(sheets));
+  }
+  await nav;
+  await page.waitForFunction(() => !!window.DECK);
+  const after = await page.evaluate(() => history.length);
+  t.check(P('double tap navigates once'), page.url() === `${base}${P1}` && after - before === 1, `history ${before} -> ${after}`);
+  r = await back();
+  t.check(P('back after a double tap returns to rest'), restOk(r), restDetail(r));
+
+  if (opts.fallback) {
+    // A bfcache restore hands the page back exactly as it was left, sheet and
+    // all; pageshow with persisted=true is the signal to put it back to rest.
+    // Playwright never restores from bfcache, so the event is dispatched by hand.
+    const tapping = page.locator('.panel:nth-child(2) .title a').tap();
+    await page.waitForTimeout(150);
+    const during = await page.evaluate(() => ({ leaving: document.documentElement.classList.contains('leaving'), sheets: document.querySelectorAll('.takeover').length }));
+    const afterShow = await page.evaluate(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      return { leaving: document.documentElement.classList.contains('leaving'), sheets: document.querySelectorAll('.takeover').length };
+    });
+    t.check(P('a persisted pageshow mid-takeover resets the page'), during.leaving && during.sheets === 1 && !afterShow.leaving && afterShow.sheets === 0, JSON.stringify({ during, afterShow }));
+    await tapping.catch(() => {});
+    await page.waitForURL(`${base}${P2}`);
   }
 
   t.check(P('no console errors or failed requests'), errors.length === 0, errors.join(' | '));
@@ -383,13 +583,23 @@ async function engineRun(name, browserType, ctxOpts, smallOpts, base) {
   const ctx = await browser.newContext(ctxOpts);
   await ctx.addInitScript(INIT);
   const width = ctxOpts.viewport.width;
-  await runDeck(ctx, base, '', t, 'part 1', { engine: name, slug: 'p1', width, cdp: name === 'chromium' });
-  await runDeck(ctx, base, 'worth-your-time/', t, 'part 2', { engine: name, slug: 'p2', width, cdp: name === 'chromium' });
+  await runIndex(ctx, base, t, { engine: name, width });
+  await runDeck(ctx, base, P1, t, 'part 1', { engine: name, slug: 'p1', width, cdp: name === 'chromium' });
+  await runDeck(ctx, base, P2, t, 'part 2', { engine: name, slug: 'p2', width, cdp: name === 'chromium', theme: LILAC });
   const small = await browser.newContext(smallOpts);
   await small.addInitScript(INIT);
-  for (const [deckPath, label] of [['', 'part 1'], ['worth-your-time/', 'part 2']]) {
+  await runIndex(small, base, t, { engine: name, width: smallOpts.viewport.width, tag: 'small', quick: true });
+  for (const [deckPath, label] of [[P1, 'part 1'], [P2, 'part 2']]) {
     await fitWalk(small, base, deckPath, t, label, `${smallOpts.viewport.width}x${smallOpts.viewport.height}`);
     await fitWalk(ctx, base, deckPath, t, label, `${width}x${ctxOpts.viewport.height}`);
+  }
+  if (name === 'chromium') {
+    // The same index checks with cross-document view transitions hidden from
+    // the page, so the JS takeover fallback is the path under test.
+    const plain = await browser.newContext(ctxOpts);
+    await plain.addInitScript(INIT);
+    await plain.addInitScript(() => { delete window.PageRevealEvent; });
+    await runIndex(plain, base, t, { engine: name, width, tag: 'fallback', fallback: true });
   }
   await browser.close();
   return t.results;
@@ -406,7 +616,7 @@ async function compareBaseline(base, baseDir) {
     const ctx = await browser.newContext(opts);
     await ctx.addInitScript(() => { Math.random = () => 0; });
     const page = await ctx.newPage();
-    await page.goto(root);
+    await page.goto(tag === 'new' ? root + P1 : root);
     await page.waitForFunction(() => document.fonts.status === 'loaded');
     const snap = async (k) => { await page.waitForTimeout(400); shots[`${tag}-${k}`] = await page.screenshot({ fullPage: true, animations: 'disabled' }); };
     const tap = async (sel) => { await page.locator(sel).tap(); await page.waitForTimeout(400); };
