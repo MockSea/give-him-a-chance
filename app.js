@@ -1,98 +1,12 @@
-// Sherita Janielle's whiteboard, transcribed. Wording is hers; question marks
-// added where the board drops them. Each main question can carry one rescue
-// question that runs when the main answer fails.
-const CREDIT = Object.freeze({
-  name: 'Sherita Janielle',
-  handle: '@sheritajanielle',
-  profile: 'https://www.instagram.com/sheritajanielle/',
-  reel: 'https://www.instagram.com/reel/DeKs-qdvu4l/',
-});
-
-// `why` is what she says when he fails that step. `said: true` means her words
-// from the reel transcript, near verbatim; otherwise it is a line built from
-// the board for a step where she doesn't give a reason out loud.
-// `roast` is Moxy's line for the same step, one picked at random per verdict.
-const STEPS = Object.freeze([
-  { q: 'Are you attracted to him?', pass: 'yes',
-    why: { text: 'We want to be attracted.', said: true },
-    roast: [
-      'You can\'t manifest chemistry. You tried. We all saw.',
-      '"He\'s nice on paper" is how you end up living on paper.',
-      'Respectfully, he\'s a coworker now.',
-    ] },
-  { q: 'Is he the hottest man you have ever seen?', pass: 'no',
-    why: { text: 'It’s going to lead you to heartbreak. He don’t have to be the hottest guy in the world, okay?', said: true },
-    roast: [
-      'That face has a waitlist and you\'re not first on it.',
-      'Men that pretty already have a girlfriend. It\'s the mirror.',
-      'He\'s already been told he\'s perfect. By several people. This week.',
-    ] },
-  { q: 'Did he plan the date?', pass: 'yes',
-    rescue: { q: 'Did he ask for your input?', pass: 'yes' },
-    why: { text: 'He just had you plan the whole thing? That’s going to go ahead and be a no for me, okay?', said: true },
-    roast: [
-      'You didn\'t go on a date. You ran an event.',
-      'He showed up like a plus-one to his own date.',
-      'Congrats on your new unpaid role as his travel agent.',
-    ] },
-  { q: 'Did he pay the check?', pass: 'yes',
-    rescue: { q: 'Did he offer?', pass: 'yes' },
-    why: { text: 'Some of you women, you have a problem with people paying for stuff. Fine. But he didn’t even offer.', said: false },
-    roast: [
-      'The check came and so did his sudden interest in his phone.',
-      'He reached for his wallet the way people reach for the gym.',
-      'Splitting is fine. Not seeing the check is a lifestyle.',
-    ] },
-  { q: 'Did he make you laugh?', pass: 'yes',
-    rescue: { q: 'Was he nice to the wait staff?', pass: 'yes' },
-    why: { text: 'Not making you laugh is okay. Not being nice to the waitstaff? That is a hard no.', said: true },
-    roast: [
-      'Boring and mean to the server. A two-for-one nobody ordered.',
-      'How he treats the waiter is the trailer. The trailer was bad.',
-      'He didn\'t make you laugh, but he did make the server sigh.',
-    ] },
-  { q: 'Is he employed?', pass: 'yes',
-    rescue: { q: 'Did he just sell his tech company?', pass: 'yes' },
-    why: { text: 'No job, and he did not just sell a tech company. That’s a no for me, okay?', said: false },
-    roast: [
-      '"Between opportunities" since the Obama administration.',
-      'His startup is a podcast with zero episodes.',
-      'The only thing he\'s acquired is your Netflix password.',
-    ] },
-  { q: 'Did he text you after the date?', pass: 'yes',
-    rescue: { q: 'Did he call?', pass: 'yes' },
-    why: { text: 'If he did neither of those, then it’s going to go ahead and be a no for me.', said: true },
-    roast: [
-      'He\'s not busy. His phone works. You know this.',
-      'Radio silence isn\'t mysterious. It\'s information.',
-      'He\'ll text in three weeks with "hey stranger". Don\'t.',
-    ] },
-  {
-    q: 'Is he emotionally available?', pass: 'yes',
-    rescue: {
-      q: 'Is he in therapy?', pass: 'yes',
-      note: 'If we get to this point and the therapy is what’s holding us up, we have to decide on ourselves.',
-    },
-    why: { text: 'Not emotionally available, and not in therapy about it. It’s going to go ahead and be a no.', said: false },
-    roast: [
-      'He\'s not a fixer-upper. He\'s a teardown.',
-      'You\'d be his therapist, unpaid, with worse hours.',
-      'His emotional range is "idk" to "lol".',
-    ],
-  },
-]);
-
-const YES_LINE = 'If this man has done all this, we are definitely giving him a chance, okay? I’m glad we sorted that out.';
-
-const YES_ROASTS = Object.freeze([
-  'Go. Text the group chat. Then put your phone down.',
-  'Rare find. Do not mention the five-year plan on date two.',
-  'He passed all eight. Check for a pulse, then a ring.',
-]);
+// The deck engine. Everything specific to one deck (questions, verdicts, title,
+// credit) comes from window.DECK, set by that page's deck.js. Each main question
+// can carry one rescue question that runs when the main answer fails.
+const { CREDIT, TITLE_HTML, TITLE_TEXT, LEDE, STEPS, YES_LINE, YES_ROASTS, VERDICT } = window.DECK;
+const NEXT = window.DECK.NEXT || null; // link to the next part, under a YES
+const SERIES = window.DECK.SERIES || null; // which part this is, on the credit line
 
 const ROASTER = 'Moxy';
 
-const VERDICT = Object.freeze({ NO: "It's a NO for me", YES: 'Give him a chance' });
 const FLY_MS = 420;
 const SNAP_MS = 320;
 const SETTLE_MS = 400;
@@ -168,7 +82,10 @@ const ICON_RESTART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const ICON_HEART = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z"/></svg>';
 
 function creditLine() {
-  return el('p', { class: 'credit', html:
+  const series = SERIES
+    ? `<span class="series">${SERIES.label} &middot; <a href="${SERIES.prev.href}">${SERIES.prev.text}</a></span>`
+    : '';
+  return el('p', { class: 'credit', html: series +
     `Flowchart by <a href="${CREDIT.profile}" rel="noopener">${CREDIT.name} (${CREDIT.handle})</a>` +
     ` &middot; <a href="${CREDIT.reel}" rel="noopener">watch the reel</a>` +
     `<span class="byline">built by <a href="https://github.com/MockSea" rel="noopener">Moxy</a> 🖤</span>` });
@@ -177,14 +94,14 @@ function creditLine() {
 function marksList(pos) {
   const step = pos.verdict ? STEPS.length : pos.step;
   const label = `Question ${Math.min(step + 1, STEPS.length)} of ${STEPS.length}`;
-  return el('ol', { class: 'marks', 'aria-label': label }, STEPS.map((_, i) =>
+  return el('ol', { class: 'marks', 'aria-label': label, style: `--n: ${STEPS.length}` }, STEPS.map((_, i) =>
     el('li', { class: i < step ? 'done' : i === step ? 'now' : '' })));
 }
 
 function renderStart() {
   return [
-    el('h1', { class: 'title', html: 'Should you give this man <em>a chance?</em>' }),
-    el('p', { class: 'lede' }, ['He’s cute. Allegedly. Let’s see if he survives Sherita’s flowchart.']),
+    el('h1', { class: 'title', html: TITLE_HTML }),
+    el('p', { class: 'lede' }, [LEDE]),
     el('div', { class: 'spacer' }),
     el('p', { class: 'nudge' }, ['swipe to start']),
     creditLine(),
@@ -196,6 +113,8 @@ function renderStart() {
 function renderQuestion(pos) {
   const q = questionAt(pos);
   const parts = [marksList(pos), el('div', { class: 'spacer top' }), el('h1', { class: 'q' }, [q.q])];
+  // A rescue can carry her aside about it, shown under the question.
+  if (q.note) parts.push(el('p', { class: 'note' }, [q.note, ' ', el('cite', {}, [`— ${firstName()}`])]));
   parts.push(el('div', { class: 'spacer' }));
   parts.push(el('div', { class: 'stamp yes', 'aria-hidden': 'true' }, ['Yes']));
   parts.push(el('div', { class: 'stamp no', 'aria-hidden': 'true' }, ['Nope']));
@@ -242,6 +161,7 @@ function renderResult(pos, s) {
   }
 
   parts.push(el('p', { class: 'roast' }, [s.roast, ' ', el('cite', {}, [`— ${ROASTER}`])]));
+  if (!isNo && NEXT) parts.push(el('a', { class: 'next', href: NEXT.href }, [NEXT.text]));
   parts.push(tallyList(s.history));
   parts.push(el('button', { class: 'undo', type: 'button', onclick: back }, ['Change the last answer']));
   parts.push(el('div', { class: 'spacer' }));
@@ -256,9 +176,11 @@ function renderResult(pos, s) {
 function whyBlock(why) {
   if (!why.said) return el('p', { class: 'quote plain' }, [why.text]);
   return el('blockquote', { class: 'quote' }, [
-    why.text, ' ', el('cite', {}, [`— ${CREDIT.name.split(' ')[0]}, in the reel`]),
+    why.text, ' ', el('cite', {}, [`— ${firstName()}, in the reel`]),
   ]);
 }
+
+function firstName() { return CREDIT.name.split(' ')[0]; }
 
 function screenOf(s) {
   if (s.screen === 'start') return 'start';
@@ -457,7 +379,7 @@ function shareText() {
     ? `\n“${STEPS[pos.failedAt].why.text}”`
     : `\n“${YES_LINE}”`;
   const roast = state.roast ? `\n“${state.roast}” — ${ROASTER}` : '';
-  return `Should you give this man a chance? I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}${roast}\n\n${location.href}`;
+  return `${TITLE_TEXT} I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}${roast}\n\n${location.href}`;
 }
 
 async function share(event) {
