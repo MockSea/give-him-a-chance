@@ -83,6 +83,7 @@ a:hover { color: var(--blue); }
 .app {
   height: 100dvh;
   overflow: hidden;
+  background: var(--ground);
   padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
     max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   display: flex;
@@ -489,9 +490,25 @@ h1:focus-visible { outline: none; }
   .card { padding: 32px 32px 28px; }
 }
 
+/* ---- between pages ----------------------------------------------------------- */
+
+/* Same-origin navigations get a cross-document view transition where the
+   browser has them. Each deck's .app names itself and its start card (the
+   --vt-* pair is set inline on .app in that deck's HTML); the index gives the
+   matching panel and mini card the same names, so a tap on a panel morphs it
+   into the deck, and back shrinks the deck into its panel. Off the start
+   screen the names drop, and a result page just crossfades. */
+@view-transition { navigation: auto; }
+.app[data-screen="start"] { view-transition-name: var(--vt-part); }
+.card.start { view-transition-name: var(--vt-card); }
+::view-transition-group(*) { animation-duration: 420ms; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 420ms; }
+::view-transition-old(*), ::view-transition-new(*) { height: 100%; object-fit: cover; }
+
 /* ---- reduced motion ------------------------------------------------------------ */
 
 @media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
   .card, .under, .act, .act .disc, .btn { transition: none !important; animation: none !important; }
   .verdict { animation: none; }
   .burst { display: none; }

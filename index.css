@@ -1,0 +1,167 @@
+/* The series index. Loads after style.css and reuses its tokens and type
+   (.title, .lede, .credit, .byline); each panel is one part, painted in that
+   part's own colour via data-theme, with a mini version of its start card. */
+
+html.index, html.index body { background: var(--ink); }
+
+body.index {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  color: var(--white);
+  padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  box-sizing: border-box;
+}
+
+.masthead { margin: 4px 2px 14px; }
+.masthead h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  font-stretch: 90%;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.masthead p {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(255, 253, 253, .68);
+}
+
+/* ---- the panels --------------------------------------------------------- */
+
+.parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel {
+  position: relative;
+  flex: 1;
+  min-height: 232px;
+  display: flex;
+  padding: 18px;
+  border-radius: 22px;
+  background: var(--ground);
+  color: var(--ink);
+  overflow: hidden;
+  transition: transform 160ms var(--ease);
+  view-transition-name: var(--vt-part);
+}
+.panel:has(.title a:active) { transform: scale(.985); }
+
+/* the next card peeking out from under, same as the deck */
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border-radius: var(--radius);
+  background: var(--paper-under);
+  transform: rotate(-2.5deg) translateY(10px);
+  transform-origin: 50% 100%;
+}
+
+.mini {
+  z-index: 1; /* a flex item, so this stacks it over ::before without positioning it */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 18px 16px;
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--card-shadow);
+  view-transition-name: var(--vt-card);
+}
+
+.part {
+  align-self: flex-start;
+  padding: 3px 9px 2px;
+  border: 2px solid var(--blue);
+  border-radius: 7px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  transform: rotate(-3deg);
+}
+
+.mini .title {
+  margin: 12px 0 0;
+  font-size: clamp(32px, 9.2vw, 46px);
+}
+.mini .title a { color: inherit; text-decoration: none; }
+.mini .title a:hover { color: inherit; }
+/* the whole panel is the tap target */
+.mini .title a::after { content: ''; position: absolute; inset: 0; }
+
+.mini .lede { margin-top: 10px; font-size: 16px; }
+
+.mini .credit {
+  position: relative; /* sits above the stretched link, so the credit is its own tap */
+  z-index: 2;
+  margin-top: auto;
+  padding-top: 16px;
+  font-size: 13px;
+}
+
+/* ---- the rest ----------------------------------------------------------- */
+
+.colophon { margin: 16px 2px 0; }
+.colophon .credit { color: rgba(255, 253, 253, .62); }
+.colophon .byline { margin-top: 0; }
+.colophon a:hover { color: var(--paper); }
+
+.noscript-note {
+  margin: 10px 2px 0;
+  font-size: 13px;
+  color: rgba(255, 253, 253, .62);
+}
+
+/* JS fallback for browsers without cross-document view transitions: a sheet
+   in the panel's colour grows over the page, then the navigation happens. */
+.takeover {
+  position: fixed;
+  z-index: 30;
+  box-sizing: border-box;
+  padding: 18px;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+}
+.takeover .mini { flex: 1; }
+html.leaving .parts { pointer-events: none; }
+
+/* ---- wide ------------------------------------------------------------------ */
+
+@media (min-width: 720px) {
+  body.index { padding: 28px 32px; }
+  .masthead { margin-bottom: 20px; }
+  .masthead h1 { font-size: 28px; }
+  .masthead p { font-size: 17px; }
+  .parts {
+    flex-direction: row;
+    gap: 20px;
+    width: 100%;
+    max-width: 1040px;
+    margin: 0 auto;
+    flex: 0 0 auto;
+  }
+  .panel { min-height: 440px; padding: 24px; border-radius: 26px; }
+  .panel::before { inset: 24px; }
+  .mini { padding: 24px 24px 20px; }
+  .mini .title { font-size: 48px; }
+  .mini .lede { font-size: 18px; }
+  .colophon { width: 100%; max-width: 1040px; margin: 24px auto 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel { transition: none; }
+}

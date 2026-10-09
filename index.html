@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" class="index">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sherita's flowcharts</title>
+  <meta name="description" content="Sherita Janielle's dating flowcharts, one swipe at a time. Part 1: should you give him a chance? Part 2: is he worth your time?">
+  <meta name="theme-color" content="#17111a">
+  <meta name="color-scheme" content="dark">
+  <meta property="og:title" content="Sherita's flowcharts">
+  <meta property="og:description" content="Sherita Janielle's dating flowcharts, one swipe at a time. Part 1: should you give him a chance? Part 2: is he worth your time?">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%2317111a'/%3E%3Ctext x='32' y='46' font-family='Arial, sans-serif' font-size='40' font-weight='800' text-anchor='middle' fill='%23f7acc7'%3E%3F%3C/text%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body class="index">
+  <a class="skip" href="#parts">Skip to the parts</a>
+
+  <header class="masthead">
+    <h1>Sherita's flowcharts</h1>
+    <p>Pick a part. Swipe him through it.</p>
+  </header>
+
+  <!--
+    One panel per part. To add part 3: make a folder (part-3-slug/) with its own
+    index.html + deck.js like the others, then copy a <li> below and change
+    the part number, the title, the lede, the href, and the --vt-* pair
+    (part-3 / card-3). Give it data-theme="..." if it has its own colour in
+    style.css; leave the attribute off for pink.
+  -->
+  <ol class="parts" id="parts">
+    <li class="panel" style="--vt-part: part-1; --vt-card: card-1">
+      <article class="mini">
+        <span class="part">Part 1</span>
+        <h2 class="title"><a href="give-him-a-chance/">Give him <em>a chance?</em></a></h2>
+        <p class="lede">He's cute. Allegedly. Swipe him through the flowchart and find out.</p>
+        <p class="credit">Flowchart by <a href="https://www.instagram.com/sheritajanielle/" rel="noopener">Sherita Janielle (@sheritajanielle)</a></p>
+      </article>
+    </li>
+    <li class="panel" data-theme="lilac" style="--vt-part: part-2; --vt-card: card-2">
+      <article class="mini">
+        <span class="part">Part 2</span>
+        <h2 class="title"><a href="worth-your-time/">Is he worth <em>your time?</em></a></h2>
+        <p class="lede">You gave him a chance. Now see if he earned it.</p>
+        <p class="credit">Flowchart by <a href="https://www.instagram.com/sheritajanielle/" rel="noopener">Sherita Janielle (@sheritajanielle)</a></p>
+      </article>
+    </li>
+  </ol>
+
+  <footer class="colophon">
+    <p class="credit"><span class="byline">built by <a href="https://github.com/MockSea" rel="noopener">Moxy</a> 🖤</span></p>
+  </footer>
+
+  <noscript>
+    <p class="noscript-note">The parts open without JavaScript; the decks inside need it to deal the cards.</p>
+  </noscript>
+
+  <script src="index.js" defer></script>
+</body>
+</html>

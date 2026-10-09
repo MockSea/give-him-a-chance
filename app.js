@@ -4,6 +4,8 @@
 const { CREDIT, TITLE_HTML, TITLE_TEXT, LEDE, STEPS, YES_LINE, YES_ROASTS, VERDICT } = window.DECK;
 const NEXT = window.DECK.NEXT || null; // link to the next part, under a YES
 const SERIES = window.DECK.SERIES || null; // which part this is, on the credit line
+// The way back to the series index. Every deck lives one folder below it.
+const INDEX = window.DECK.INDEX || Object.freeze({ href: '../', text: 'all parts' });
 
 const ROASTER = 'Moxy';
 
@@ -82,9 +84,12 @@ const ICON_RESTART = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 const ICON_HEART = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 8a4.2 4.2 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z"/></svg>';
 
 function creditLine() {
-  const series = SERIES
-    ? `<span class="series">${SERIES.label} &middot; <a href="${SERIES.prev.href}">${SERIES.prev.text}</a></span>`
-    : '';
+  // "Part 2 · start with part 1 · all parts"
+  const bits = [];
+  if (SERIES) bits.push(SERIES.label);
+  if (SERIES && SERIES.prev) bits.push(`<a href="${SERIES.prev.href}">${SERIES.prev.text}</a>`);
+  bits.push(`<a class="all" href="${INDEX.href}">${INDEX.text}</a>`);
+  const series = `<span class="series">${bits.join(' &middot; ')}</span>`;
   return el('p', { class: 'credit', html: series +
     `Flowchart by <a href="${CREDIT.profile}" rel="noopener">${CREDIT.name} (${CREDIT.handle})</a>` +
     ` &middot; <a href="${CREDIT.reel}" rel="noopener">watch the reel</a>` +
