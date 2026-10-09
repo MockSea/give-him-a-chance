@@ -7,11 +7,11 @@
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   history.scrollRestoration = 'manual';
   const full = 'inset(0px 0px 0px 0px round 0px)';
-  const timing = { duration: 420, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'both' };
+  const timing = { duration: 450, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' };
   let index, links, routes, original;
   let app = document.getElementById('app'), skip = document.querySelector('body > .skip');
   let current = app ? address() : home, scroll = 0, revision = 0, pending = false;
-  let animations = [], extras = [], panel, complete, motion;
+  let animations = [], extras = [], pausedLive = [], complete, motion;
   let engine = window.mountDeck ? Promise.resolve() : null;
   const meta = [...document.querySelectorAll('meta[name], meta[property]')];
 
@@ -105,12 +105,11 @@
   function cleanup() {
     animations.forEach((a) => a.cancel()); animations = [];
     extras.forEach((el) => el.remove()); extras = [];
-    panel?.classList.remove('departing'); panel = null;
+    pausedLive.forEach((a) => a.play()); pausedLive = [];
     root.classList.remove('leaving');
     index.inert = false;
     if (app) {
       app.inert = false;
-      app.classList.remove('route-deck');
       app.removeAttribute('style');
       app.querySelector('.col').removeAttribute('style');
     }
@@ -124,6 +123,7 @@
   }
   function restDeck() {
     index.hidden = true;
+    root.dataset.theme = app.dataset.theme;
     root.classList.remove('index'); document.body.classList.remove('index');
     app.querySelector('h1')?.focus({ preventScroll: true });
   }
@@ -153,36 +153,84 @@
     const a = el.animate(frames, options); animations.push(a); return a;
   }
   function extra(el) { el.inert = true; el.setAttribute('aria-hidden', 'true'); extras.push(el); return el; }
-  const bounds = (r) => ({ left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-  function indexMotion(href, returning, sourceRect) {
-    index.hidden = false;
-    root.classList.add('index'); document.body.classList.add('index');
-    index.style.cssText = `position:fixed;top:${-scroll}px;left:0;width:100%`;
-    panel = links.find((a) => new URL(a.getAttribute('href'), home).href === href).closest('.panel');
-    const r = panel.getBoundingClientRect();
-    const mini = panel.querySelector('.mini').getBoundingClientRect();
-    const card = sourceRect || app.querySelector('#card').getBoundingClientRect();
-    const inset = `inset(${r.top}px ${innerWidth - r.right}px ${app.getBoundingClientRect().height - r.bottom}px ${r.left}px round ${getComputedStyle(panel).borderRadius})`;
-    const preview = extra(panel.cloneNode(true));
-    preview.classList.add('departing-panel');
-    preview.dataset.theme = panel.dataset.theme || 'pink';
-    Object.assign(preview.style, bounds(r));
-    panel.classList.add('departing');
-    document.body.append(preview);
-    const paper = extra(document.createElement('div'));
-    paper.className = 'route-paper';
-    app.prepend(paper);
-    // Paper is a separate, always-opaque layer behind the two type treatments.
-    // Resizing its box cannot scale text, and closes the former empty interval.
-    animate(paper, returning ? [bounds(card), bounds(mini)] : [bounds(mini), bounds(card)]);
-    // Avoid doubling the real card's shadow at either settled endpoint.
-    animate(paper, [{ opacity: 0 }, { opacity: 1, offset: 100 / 420 },
-      { opacity: 1, offset: 300 / 420 }, { opacity: 0 }], { duration: 420, fill: 'both' });
-    animate(app, returning ? [{ clipPath: full }, { clipPath: inset }] : [{ clipPath: inset }, { clipPath: full }]);
-    animate(preview, returning ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
-      { delay: returning ? 300 : 0, duration: 100, fill: 'both' });
-    animate(app.querySelector('.col'), returning ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 1 }],
-      { delay: returning ? 0 : 120, duration: returning ? 100 : 240, easing: 'ease-out', fill: 'both' });
+  // Preserve layout dimensions and viewport offset before changing route classes,
+  // scroll or theme. The snapshot is DOM, not a scaled screenshot.
+  function snapshot(node) {
+    const r = node.getBoundingClientRect();
+    const copy = node.cloneNode(true);
+    copy.removeAttribute('id');
+    copy.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+    // Preserve the current pose of incidental CSS motion (e.g. the swipe
+    // hint). Cloning must not restart it at an unrelated animation phase.
+    const originals = [node, ...node.querySelectorAll('*')];
+    const copies = [copy, ...copy.querySelectorAll('*')];
+    node.getAnimations({ subtree: true }).forEach((animation) => {
+      const target = animation.effect?.target;
+      const clone = copies[originals.indexOf(target)];
+      if (!clone) return;
+      const style = getComputedStyle(target);
+      for (const frame of animation.effect.getKeyframes()) {
+        for (const key of Object.keys(frame)) {
+          if (!['offset', 'computedOffset', 'easing', 'composite'].includes(key)) clone.style[key] = style[key];
+        }
+      }
+    });
+    copy.hidden = false;
+    copy.dataset.theme = node.dataset.theme || 'pink';
+    Object.assign(copy.style, {
+      position: 'absolute', left: `${r.left}px`, top: `${r.top}px`,
+      width: `${r.width}px`, height: `${r.height}px`, margin: '0',
+    });
+    const view = document.createElement('div');
+    view.className = 'route-view';
+    view.style.background = getComputedStyle(document.body).backgroundColor;
+    view.append(copy);
+    return view;
+  }
+  function transition(source, destination, from, to) {
+    const stage = extra(document.createElement('div'));
+    stage.className = 'route-stage';
+    document.body.append(stage);
+    const returning = to === home;
+    if (from === home || returning) {
+      stage.dataset.kind = 'index';
+      const indexView = returning ? destination : source;
+      const deckView = returning ? source : destination;
+      stage.append(indexView);
+      const href = returning ? from : to;
+      const selected = [...indexView.querySelectorAll('.panel')][[...routes.keys()].indexOf(href)];
+      const r = selected.getBoundingClientRect();
+      const radius = getComputedStyle(selected).borderRadius;
+      const surface = document.createElement('div');
+      surface.className = 'route-surface';
+      surface.style.background = getComputedStyle(selected).backgroundColor;
+      const preview = document.createElement('div');
+      preview.className = 'route-preview';
+      const card = selected.cloneNode(true);
+      card.dataset.theme = selected.dataset.theme || 'pink';
+      Object.assign(card.style, { position: 'absolute', left: `${r.left}px`, top: `${r.top}px`,
+        width: `${r.width}px`, height: `${r.height}px`, margin: '0' });
+      // Paint the selected card once, avoiding doubled antialiased corners
+      // at the source/return endpoint. Its layout slot still stays in place.
+      selected.style.visibility = 'hidden';
+      preview.append(card);
+      surface.append(preview, deckView);
+      stage.append(surface);
+      const inset = `inset(${r.top}px ${innerWidth - r.right}px ${innerHeight - r.bottom}px ${r.left}px round ${radius})`;
+      const frames = (a, b) => returning ? [b, a] : [a, b];
+      // The selected colour covers its siblings. It never fades through them.
+      animate(surface, frames({ clipPath: inset }, { clipPath: full }));
+      // Two complementary clips exchange fixed-size copy on an opaque ground.
+      // Unlike opacity fades, they cannot superimpose two different titles.
+      animate(preview, frames({ clipPath: full }, { clipPath: `inset(0px ${innerWidth}px 0px 0px)` }));
+      animate(deckView, frames({ clipPath: `inset(0px 0px 0px ${innerWidth}px)` }, { clipPath: full }));
+    } else {
+      stage.dataset.kind = 'swap';
+      stage.append(source, destination);
+      destination.classList.add('route-surface');
+      const forward = [...routes.keys()].indexOf(to) > [...routes.keys()].indexOf(from);
+      animate(destination, [{ clipPath: forward ? `inset(0px 0px 0px ${innerWidth}px)` : `inset(0px ${innerWidth}px 0px 0px)` }, { clipPath: full }]);
+    }
   }
   async function navigate(href, push = false) {
     if (href === current) return;
@@ -194,7 +242,7 @@
       motion = { ...old, from: old.to, to: old.from };
       current = href;
       pending = true;
-      complete = href === home ? () => restIndex(old.to) : () => { restDeck(); window.scrollTo(0, old.sourceScroll); };
+      complete = href === home ? () => restIndex(old.to) : () => { restDeck(); window.scrollTo(0, old.deckScroll); };
       metadata(href === home ? original : routes.get(href).doc);
       const time = animations[0].currentTime;
       const rate = -animations[0].playbackRate;
@@ -211,44 +259,34 @@
       if (ticket !== revision) return;
       const from = current;
       if (from === home) scroll = window.scrollY;
-      const sourceRect = app?.querySelector('#card').getBoundingClientRect();
       const sourceScroll = window.scrollY;
-      const sourceHeight = app?.getBoundingClientRect().height;
-      let outgoing;
-      if (app && href !== home && !reduced.matches) {
-        outgoing = extra(app.cloneNode(true));
-        outgoing.removeAttribute('id');
-        outgoing.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
-        outgoing.classList.add('route-outgoing');
-        Object.assign(outgoing.style, { top: `${-window.scrollY}px`, height: `${app.getBoundingClientRect().height}px` });
+      const source = reduced.matches ? null : snapshot(from === home ? index : app);
+      if (href !== home) {
+        mount(route, href);
+        index.hidden = true;
+        root.classList.remove('index'); document.body.classList.remove('index');
+        window.scrollTo(0, 0);
+      } else {
+        current = home; metadata(original);
+        app.style.display = 'none';
+        root.removeAttribute('data-theme');
+        root.classList.add('index'); document.body.classList.add('index');
+        index.hidden = false;
+        window.scrollTo(0, scroll);
       }
-      if (href !== home) { mount(route, href); window.scrollTo(0, 0); }
-      else { current = home; metadata(original); }
       if (push) history.pushState(null, '', href);
       complete = href === home ? () => restIndex(from) : restDeck;
       if (reduced.matches) { settle(); return; }
+      const destinationNode = href === home ? index : app;
+      pausedLive = destinationNode.getAnimations({ subtree: true }).filter((a) => a.playState === 'running');
+      pausedLive.forEach((a) => a.pause());
+      const destination = snapshot(destinationNode);
+      transition(source, destination, from, href);
+      // Live layout is already the destination layout. Cleanup only removes
+      // snapshots, so the final sampled frame and the live frame agree.
       root.classList.add('leaving');
       index.inert = app.inert = true;
-      app.classList.add('route-deck');
-      motion = { from, to: href, sourceScroll, kind: from === home || href === home ? 'index' : 'swap' };
-      if (from === home || href === home) {
-        // A scrolled verdict must retain its viewport position on the way out.
-        if (href === home) {
-          Object.assign(app.style, { top: '0px', height: `${sourceHeight}px` });
-          app.querySelector('.col').style.transform = `translateY(${-sourceScroll}px)`;
-        }
-        indexMotion(href === home ? from : href, href === home, sourceRect);
-      } else {
-        index.hidden = true;
-        document.body.append(outgoing);
-        const direction = [...routes.keys()].indexOf(href) > [...routes.keys()].indexOf(from) ? 1 : -1;
-        // Clear the offscreen card shadow as well as its box at both ends.
-        const distance = innerWidth + 64;
-        animate(app, [{ backgroundColor: getComputedStyle(outgoing).backgroundColor }, { backgroundColor: getComputedStyle(app).backgroundColor }]);
-        outgoing.style.background = 'transparent';
-        animate(outgoing, [{ transform: 'translateX(0px)' }, { transform: `translateX(${-direction * distance}px)` }]);
-        animate(app.querySelector('.col'), [{ transform: `translateX(${direction * distance}px)` }, { transform: 'translateX(0px)' }]);
-      }
+      motion = { from, to: href, deckScroll: from === home ? 0 : sourceScroll, kind: from === home || href === home ? 'index' : 'swap' };
       await Promise.all(animations.map((a) => a.finished.catch(() => {})));
       if (ticket === revision) settle();
     } catch {

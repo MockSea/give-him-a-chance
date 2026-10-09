@@ -35,8 +35,8 @@ const ready = async (page) => {
 };
 
 // A contact sheet and pixel measurements of every frame, without a PNG library.
-async function evidence(page, buffers, labels) {
-  return page.evaluate(async ({ urls, labels }) => {
+async function evidence(page, buffers, labels, regions = []) {
+  return page.evaluate(async ({ urls, labels, regions }) => {
     const images = await Promise.all(urls.map((src) => new Promise((resolve, reject) => {
       const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = src;
     })));
@@ -58,10 +58,33 @@ async function evidence(page, buffers, labels) {
         const match = paper.findIndex((rgb) => rgb.every((v, j) => Math.abs(px[k + j] - v) < 12));
         if (match !== -1) { paperPixels++; colours[match]++; }
       }
-      return { paperFraction: paperPixels / (c.width * c.height), colours: colours.map((n) => n / (c.width * c.height)) };
+      const region = regions[n];
+      let count = 0, luminance = 0, ink = 0, groundLeaks = 0;
+      if (region) {
+        const sx = c.width / region.viewport.width, sy = c.height / region.viewport.height;
+        // Stay inside the rounded moving boundary, not the legitimate dark
+        // masthead/gutters outside it. Sample at CSS-pixel density on DPR 2/3.
+        const at = (x, y) => (Math.floor(y * sy) * c.width + Math.floor(x * sx)) * 4;
+        const dark = (k) => [23, 17, 26].every((v, j) => Math.abs(px[k + j] - v) < 5);
+        const b = region.coverage;
+        for (let y = Math.max(8, b.top + 32); y < Math.min(region.viewport.height - 8, b.bottom - 32); y += 2) {
+          for (let x = Math.max(8, b.left + 32); x < Math.min(region.viewport.width - 8, b.right - 32); x += 2) {
+            const k = at(x, y);
+            count++;
+            luminance += (.2126 * px[k] + .7152 * px[k + 1] + .0722 * px[k + 2]) / 255;
+            if (Math.max(px[k], px[k + 1], px[k + 2]) < 190 && Math.min(px[k], px[k + 1], px[k + 2]) < 110) ink++;
+            // A ground-colour patch has ink-colour neighbours in all eight
+            // directions. Individual glyph strokes must not count as holes.
+            if (dark(k) && [-7, 0, 7].every((dy) => [-7, 0, 7].every((dx) => dark(at(x + dx, y + dy))))) groundLeaks++;
+          }
+        }
+      }
+      return { samples: count, luminance: count ? luminance / count : null,
+        textFraction: count ? ink / count : null, groundLeaks,
+        paperFraction: paperPixels / (c.width * c.height), colours: colours.map((n) => n / (c.width * c.height)) };
     });
     return { png: sheet.toDataURL('image/png').split(',')[1], metrics };
-  }, { urls: buffers.map((b) => `data:image/png;base64,${b.toString('base64')}`), labels });
+  }, { urls: buffers.map((b) => `data:image/png;base64,${b.toString('base64')}`), labels, regions });
 }
 
 async function instrument(page) {
@@ -106,30 +129,40 @@ async function sample(page, action, name, destination, shots, engine, t) {
   }
   const records = [], buffers = [before], labels = ['before'];
   let last;
-  for (const ms of [...Array.from({ length: 27 }, (_, i) => i * 16), 420]) {
+  for (const ms of [...Array.from({ length: 29 }, (_, i) => i * 16), 450]) {
     records.push(await page.evaluate((ms) => {
       window.captured.forEach((a) => { a.currentTime = ms; });
       const rect = (el) => {
         const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
       };
-      const titles = [...document.querySelectorAll('#app h1, .route-outgoing h1, .departing-panel .title')].map((el) => ({
+      const stage = document.querySelector('.route-stage');
+      const surface = stage.querySelector('.route-surface');
+      const titles = [...stage.querySelectorAll('h1, .title')].map((el) => ({
         text: el.textContent, ...rect(el), font: getComputedStyle(el).fontSize,
       }));
-      const preview = document.querySelector('.departing-panel');
-      const col = document.querySelector('#app .col');
-      const moving = [...document.querySelectorAll('#app .col, .route-outgoing')].map((el) => {
+      const layers = [...stage.querySelectorAll('.route-view, .route-preview, .route-surface')];
+      const clips = layers.map((el) => getComputedStyle(el).clipPath);
+      const moving = layers.map((el) => {
         const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
         return { a: m.a, b: m.b, c: m.c, d: m.d };
       });
-      return { ms, titles, moving,
-        old: preview ? +getComputedStyle(preview).opacity : null,
-        next: col ? +getComputedStyle(col).opacity : null,
-        clip: getComputedStyle(document.querySelector('#app')).clipPath,
-        background: getComputedStyle(document.querySelector('#app')).backgroundColor,
-        paper: document.querySelector('.route-paper') ? rect(document.querySelector('.route-paper')) : null,
-        otherPanel: [...document.querySelectorAll('.index-page .panel:not(.departing)')].map((el) => ({
-          ...rect(el), visibility: getComputedStyle(el.querySelector('.mini')).visibility,
-        })),
+      const clip = getComputedStyle(surface).clipPath;
+      const insets = (clip) => {
+        const values = clip.slice(6).split(')')[0].split('round')[0].trim().split(/\s+/);
+        const [a, b = a, c = a, d = b] = values;
+        return [a, b, c, d].map((v, i) => parseFloat(v) *
+          (v.endsWith('%') ? (i % 2 ? innerWidth : innerHeight) / 100 : 1));
+      };
+      const inset = insets(clip);
+      const coverage = stage.dataset.kind === 'swap'
+        ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
+        : { left: inset[3], top: inset[0], right: innerWidth - inset[1], bottom: innerHeight - inset[2] };
+      return { ms, kind: stage.dataset.kind, titles, moving, clips, coverage,
+        textInsets: stage.dataset.kind === 'index' ? [insets(clips[2]), insets(clips[3])] : null,
+        viewport: { width: innerWidth, height: innerHeight },
+        opacity: layers.map((el) => +getComputedStyle(el).opacity),
+        background: getComputedStyle(surface).backgroundColor,
+        timings: window.captured.map((a) => ({ duration: a.effect.getTiming().duration, easing: a.effect.getTiming().easing })),
       };
     }, ms));
     last = await page.screenshot({ path: path.join(shots, `${prefix}-${String(ms).padStart(3, '0')}.png`) });
@@ -138,20 +171,26 @@ async function sample(page, action, name, destination, shots, engine, t) {
   t.check(`${name}: first frame preserves the source`, await sameImage(page, before, buffers[1]));
   t.check(`${name}: intermediate frame differs from both endpoints`,
     !(await sameImage(page, buffers[14], buffers[1])) && !(await sameImage(page, buffers[14], last)));
-  t.check(`${name}: motion has many intermediate states`, new Set(records.map((f) => JSON.stringify([f.clip, f.titles, f.background, f.paper]))).size > 10);
+  t.check(`${name}: motion has many intermediate states`, new Set(records.map((f) => JSON.stringify(f.clips))).size > 10);
   t.check(`${name}: typography never scales`, records.every((f) =>
     f.moving.every((m) => Math.abs(m.a - 1) < .001 && Math.abs(m.d - 1) < .001 && Math.abs(m.b) < .001 && Math.abs(m.c) < .001) &&
     f.titles.every((title, i) => Math.abs(title.width - records[0].titles[i].width) < .1 &&
       Math.abs(title.height - records[0].titles[i].height) < .1 && title.font === records[0].titles[i].font)));
-  if (records[0].old !== null) {
-    t.check(`${name}: titles never overlap`, records.every((f) => f.old === 0 || f.next === 0));
-    t.check(`${name}: paper remains present through the text handoff`, records.every((f) => f.paper?.width > 200 && f.paper?.height > 150));
-    t.check(`${name}: other panel exists throughout the return/reveal`, records.every((f) =>
-      f.otherPanel.length === 1 && f.otherPanel[0].width > 200 && f.otherPanel[0].visibility === 'visible'));
-    t.check(`${name}: ground retains the chosen theme`, records.every((f) => f.background === records[0].background));
+  t.check(`${name}: solid layers never fade`, records.every((f) => f.opacity.every((v) => v === 1)));
+  t.check(`${name}: 450ms material motion with reference easing`, records.every((f) =>
+    f.timings.every((v) => v.duration === 450 && v.easing.replaceAll(' ', '') === 'cubic-bezier(0.4,0,0.2,1)')));
+  if (records[0].kind === 'index') {
+    t.check(`${name}: selected ground stays one colour`, records.every((f) => f.background === records[0].background));
+    const areas = records.map((f) => (f.coverage.right - f.coverage.left) * (f.coverage.bottom - f.coverage.top));
+    const sign = Math.sign(areas.at(-1) - areas[0]);
+    t.check(`${name}: selected surface grows or contracts monotonically`, sign !== 0 && areas.every((v, i) => !i || sign * (v - areas[i - 1]) >= -.1));
+    t.check(`${name}: text clips meet without overlap or an empty gap`, records.every((f) => {
+      const [preview, deck] = f.textInsets;
+      return Math.abs(preview[1] + deck[3] - f.viewport.width) < .1;
+    }));
   } else {
-    t.check(`${name}: deck ground changes theme continuously`, records[0].background !== records.at(-1).background &&
-      records.some((f) => f.background !== records[0].background && f.background !== records.at(-1).background));
+    t.check(`${name}: part to part uses an opaque sweep`, records.every((f) => f.opacity.every((v) => v === 1)) &&
+      records[0].clips.at(-1) !== records.at(-1).clips.at(-1));
   }
   await page.evaluate(() => { window.holdMotion = false; window.captured.forEach((a) => a.finish()); });
   await settled(page);
@@ -159,15 +198,17 @@ async function sample(page, action, name, destination, shots, engine, t) {
   buffers.push(live); labels.push('live');
   t.check(`${name}: final animation frame equals live page`, await sameImage(page, last, live));
   t.check(`${name}: cleanup leaves one interactive destination`, await page.evaluate(() =>
-    !document.querySelector('.route-deck, .route-outgoing, .route-paper, .departing-panel, .departing') &&
+    !document.querySelector('.route-stage') &&
     (document.querySelector('#app') ? !document.querySelector('#app').inert && document.querySelector('.index-page').hidden :
       !document.querySelector('.index-page').inert && !document.querySelector('.index-page').hidden)));
-  const { png, metrics } = await evidence(page, buffers, labels);
-  t.check(`${name}: no blank ground-colour frame`, metrics.every((m) => m.paperFraction > .025), JSON.stringify(metrics));
-  if (records[0].old === 0) {
-    const other = records[0].background === 'rgb(236, 141, 177)' ? 1 : 0;
-    t.check(`${name}: other panel is painted before the return ends`, metrics[14].colours[other] > .025);
-  }
+  const { png, metrics } = await evidence(page, buffers, labels, [null, ...records, null]);
+  const sampled = metrics.slice(1, -1);
+  t.check(`${name}: no sampled page-ground patches inside the moving surface`,
+    sampled.every((m) => m.samples > 0 && m.groundLeaks === 0), JSON.stringify(sampled));
+  const floor = Math.min(sampled[0].luminance, sampled.at(-1).luminance);
+  t.check(`${name}: card-area luminance does not dip and recover`, sampled.every((m) => m.luminance >= floor - .08));
+  const textFloor = Math.min(sampled[0].textFraction, sampled.at(-1).textFraction) * .1;
+  t.check(`${name}: visible text never disappears during the handoff`, sampled.every((m) => m.textFraction > Math.max(.0005, textFloor)));
   fs.writeFileSync(path.join(shots, `${prefix}-strip.png`), Buffer.from(png, 'base64'));
   fs.writeFileSync(path.join(shots, `${prefix}.json`), JSON.stringify({ records, metrics }, null, 2));
   return live;
@@ -228,7 +269,7 @@ export async function navigationEdges(browser, options, base, t, shots, engine) 
   await page.evaluate(() => { window.sameDocument = true; });
   await page.locator('.panel:nth-child(2) .title a').tap();
   await page.waitForURL(base + 'worth-your-time/');
-  const instantLanding = await page.evaluate(() => window.sameDocument && !document.querySelector('.route-deck, .departing-panel') && !document.documentElement.classList.contains('leaving'));
+  const instantLanding = await page.evaluate(() => window.sameDocument && !document.querySelector('.route-stage') && !document.documentElement.classList.contains('leaving'));
   t.check('reduced motion: instant same-document deck', instantLanding);
   await page.locator('#act-yes').tap();
   t.check('reduced motion: mounted deck accepts input', await page.locator('#app').getAttribute('data-screen') === 'question');
@@ -321,7 +362,7 @@ export async function navigationEdges(browser, options, base, t, shots, engine) 
     t.check(`reduced motion ${name}: instant and same document`, await page.evaluate((isHome) =>
       window.instantDocument && window.routeAnimationCalls === 0 &&
       !document.documentElement.classList.contains('leaving') &&
-      !document.querySelector('.route-deck, .route-paper, .route-outgoing, .departing-panel') &&
+      !document.querySelector('.route-stage') &&
       (isHome ? !window.deckApp && !document.querySelector('.index-page').hidden :
         !!window.deckApp && !document.querySelector('#app').inert), target === ''));
     const after = await page.screenshot(still);

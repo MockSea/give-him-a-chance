@@ -541,11 +541,11 @@ async function runIndex(ctx, base, t, opts) {
 
   // Exercise the persisted-pageshow cleanup signal while expansion is active.
   await page.locator('.panel:nth-child(2) .title a').tap();
-  await page.waitForFunction(() => !!document.querySelector('.route-deck'));
+  await page.waitForFunction(() => !!document.querySelector('.route-stage'));
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   const restored = await page.evaluate(() => ({
     leaving: document.documentElement.classList.contains('leaving'),
-    overlays: document.querySelectorAll('.route-deck, .departing-panel').length,
+    overlays: document.querySelectorAll('.route-stage').length,
     inert: document.getElementById('app').inert,
   }));
   t.check(P('persisted pageshow settles the live deck'), !restored.leaving && !restored.overlays && !restored.inert, JSON.stringify(restored));
@@ -618,6 +618,8 @@ async function engineRun(name, browserType, ctxOpts, smallOpts, base) {
     await plain.addInitScript(() => { delete window.PageRevealEvent; });
     await runIndex(plain, base, t, { engine: name, width, tag: 'fallback', fallback: true });
   }
+  // Round 3: endpoint pixels, opaque expansion/reverse/sweep, and per-frame
+  // page-ground, luminance and text-presence checks over the full flow matrix.
   await motionFrames(ctx, base, SHOTS, name, t);
   await navigationEdges(browser, ctxOpts, base, t, SHOTS, name);
   await browser.close();
