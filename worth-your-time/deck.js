@@ -94,7 +94,7 @@
   const VERDICT = Object.freeze({ NO: 'Not worth your time', YES: 'Worth your time' });
 
   // On the credit line: which part this is, and the way back to part 1.
-  const SERIES = Object.freeze({ label: 'Part 2', prev: Object.freeze({ href: '../', text: 'start with part 1' }) });
+  const SERIES = Object.freeze({ label: 'Part 2', prev: Object.freeze({ href: '../give-him-a-chance/', text: 'start with part 1' }) });
 
   window.DECK = Object.freeze({ CREDIT, TITLE_HTML, TITLE_TEXT, LEDE, STEPS, YES_LINE, YES_ROASTS, VERDICT, SERIES });
 })();

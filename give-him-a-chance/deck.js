@@ -1,4 +1,4 @@
-// Part 1: "Should you give this man a chance?" Loaded before app.js, which
+// Part 1: "Should you give this man a chance?" Loaded before ../app.js, which
 // reads everything deck-specific from window.DECK.
 (() => {
   // Sherita Janielle's whiteboard, transcribed. Wording is hers; question marks
@@ -99,7 +99,10 @@
   const LEDE = 'He’s cute. Allegedly. Let’s see if he survives Sherita’s flowchart.';
 
   // Shown under the YES verdict.
-  const NEXT = Object.freeze({ href: 'worth-your-time/', text: 'Part 2: is he worth your time? →' });
+  const NEXT = Object.freeze({ href: '../worth-your-time/', text: 'Part 2: is he worth your time? →' });
 
-  window.DECK = Object.freeze({ CREDIT, TITLE_HTML, TITLE_TEXT, LEDE, STEPS, YES_LINE, YES_ROASTS, VERDICT, NEXT });
+  // On the credit line: which part this is.
+  const SERIES = Object.freeze({ label: 'Part 1' });
+
+  window.DECK = Object.freeze({ CREDIT, TITLE_HTML, TITLE_TEXT, LEDE, STEPS, YES_LINE, YES_ROASTS, VERDICT, NEXT, SERIES });
 })();
