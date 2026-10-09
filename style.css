@@ -21,13 +21,27 @@
   --red: #9e0b27;
   --green: #06552b;
   --white: #fffdfd;
+  --shade: 90, 15, 50; /* the shadow tint, an rgb triple */
   --radius: 16px;
-  --card-shadow: 0 18px 40px -16px rgba(90, 15, 50, .5), 0 2px 6px -2px rgba(90, 15, 50, .25);
+  --card-shadow: 0 18px 40px -16px rgba(var(--shade), .5), 0 2px 6px -2px rgba(var(--shade), .25);
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --fly: 420ms;
   --snap: 320ms;
   --dock-h: 112px;
   color-scheme: light;
+}
+
+/* Each part has a colour. Pink is the default above; a deck picks another
+   family with data-theme on <html>, and the index puts the same attribute on
+   that part's panel. Ink and the marker set (blue, green, red) stay the same,
+   so check them against the new paper: all five text colours clear WCAG AA. */
+[data-theme="lilac"] {
+  --ground: #ba94e6;
+  --ground-deep: #a479d5;
+  --paper: #d4b7f5;
+  --paper-under: #c7a4ef;
+  --ink-soft: #4f297a;
+  --shade: 50, 15, 90;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -266,7 +280,7 @@ h1:focus-visible { outline: none; }
   height: 72px;
   border-radius: 50%;
   background: var(--white);
-  box-shadow: 0 10px 24px -10px rgba(90, 15, 50, .55), 0 1px 2px rgba(90, 15, 50, .2);
+  box-shadow: 0 10px 24px -10px rgba(var(--shade), .55), 0 1px 2px rgba(var(--shade), .2);
   display: grid;
   place-items: center;
   transition: transform 180ms var(--ease), background 180ms;
@@ -446,6 +460,7 @@ h1:focus-visible { outline: none; }
 
 .credit { margin: 0; font-size: 14px; color: var(--ink-soft); }
 .series { display: block; margin-bottom: 4px; font-weight: 700; }
+.series .all { font-weight: 600; }
 .next {
   align-self: flex-start;
   margin: -6px 0 20px;
