@@ -292,3 +292,46 @@ especially WebKit browser Back and scrolled-verdict returns. Raster sampling is
 not proof of every pixel or real-device frame pacing. Traversals between separate
 native documents remain browser-controlled; the same-document router covers the
 reported index/open/all-parts/open2/Back sequence.
+
+---
+
+# Round 7: Safari bar tint during route motion
+
+The fixed `.route-stage` now receives the destination snapshot's resolved ground
+color before insertion. Previously its own background was transparent, with the
+opaque index snapshot supplying the dark paint at both viewport edges throughout
+most of an index expansion. The destination page theme and theme-color metadata
+were already updated; repeating that metadata update would not address this
+fixed overlay.
+
+The brief's hypothesis is consistent with the code and WebKit's explanation of
+[fixed/sticky edge color extension](https://bugs.webkit.org/show_bug.cgi?id=301756#c2).
+It is not a confirmed diagnosis on the reported phone. This change gives the
+viewport-fixed container an explicit destination background for that mechanism:
+pink or lilac on entry, ink on all-parts/Back, and the next part's ground on a
+part-to-part move. Active Back/Forward reversal exchanges the saved source and
+destination tints immediately, without restarting or seeking the motion.
+
+The new background sits underneath the existing opaque snapshots. No snapshot
+background, stacking order, clipping, dimensions, text fade, easing, duration,
+scroll behavior or endpoint handoff was changed. No CSS change was necessary.
+The intended in-viewport output is identical to Round 6; pixel parity has not
+been measured in this session. Cleanup removes the stage and its tint together.
+Reduced-motion navigation still uses the destination page directly.
+
+Passed: `node qa/router-copy.mjs`, `node qa/router-lifecycle.mjs`,
+`node --check index.js`, and `git diff --check`. The lifecycle regression now
+also checks tint changes through Back/Forward/Back on the shared clock.
+No server or browser was launched, as requested. The full browser suite and
+its thresholds are unchanged; no new Chromium/WebKit pass totals are claimed.
+
+Human verification: run `qa/qa.mjs` in both engines and compare the motion to
+Round 6. On the reported iPhone, record entry into each part, all-parts and
+browser Back (including from a scrolled verdict), both part-to-part directions,
+and rapid Back/Forward during expansion. With the bars expanded and collapsed,
+check that both edges adopt the destination tint from the first motion frame,
+with no change to the viewport animation. Record the iOS version and Safari
+bar layout. Browser chrome sampling and update timing are Safari-controlled:
+if it still takes the descendant snapshot's paint instead of the container's
+background, this targeted fix will need revision; desktop WebKit QA alone
+cannot establish that it worked.

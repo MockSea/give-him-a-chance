@@ -12,6 +12,7 @@ const code = [
 ].join('\n');
 function harness(time = 100) {
   const frames = new Map();
+  const stage = { style: { backgroundColor: 'pink' } };
   let id = 0, removed = 0, completed = 0;
   const makeAnimation = () => ({
     currentTime: time, playbackRate: 1, playState: 'running', finished: new Promise(() => {}),
@@ -22,12 +23,13 @@ function harness(time = 100) {
   });
   const ctx = vm.createContext({
     animations: [], extras: [{ remove() { removed++; } }], pausedLive: [], finishFrame: null,
-    complete: null, motion: { kind: 'index', from: 'home', to: 'deck', deckScroll: 0 },
+    complete: null, motion: { kind: 'index', from: 'home', to: 'deck', deckScroll: 0,
+      fromTint: 'ink', toTint: 'pink' },
     home: 'home', current: 'deck', duration: 690, revision: 0, pending: true,
     reduced: { matches: false }, original: {}, routes: new Map(), timing: {},
     root: { classList: { remove() {} } },
     index: { inert: true, removeAttribute() {} }, app: null,
-    document: { querySelectorAll() { return [{ remove() { removed++; } }]; } },
+    document: { querySelector() { return stage; }, querySelectorAll() { return [{ remove() { removed++; } }]; } },
     metadata() {}, restIndex() { completed++; },
     requestAnimationFrame(fn) { frames.set(++id, fn); return id; },
     cancelAnimationFrame(key) { frames.delete(key); },
@@ -35,7 +37,7 @@ function harness(time = 100) {
   vm.runInContext(code, ctx);
   const a = ctx.animate({ animate: makeAnimation }, []);
   const b = ctx.animate({ animate: makeAnimation }, []);
-  return { ctx, a, b, removed: () => removed, completed: () => completed,
+  return { ctx, a, b, stage, removed: () => removed, completed: () => completed,
     tick() { const batch = [...frames.values()]; frames.clear(); batch.forEach((fn) => fn()); } };
 }
 for (const time of [0, null]) {
@@ -52,6 +54,12 @@ for (const time of [0, null]) {
   assert.equal(h.a.currentTime, 100);
   assert.equal(h.b.currentTime, 100);
   assert.equal(h.a.playbackRate, -1);
+  assert.equal(h.stage.style.backgroundColor, 'ink');
+  h.ctx.routes.set('deck', { doc: {} });
+  await h.ctx.navigate('deck');
+  assert.equal(h.stage.style.backgroundColor, 'pink');
+  await h.ctx.navigate('home');
+  assert.equal(h.stage.style.backgroundColor, 'ink');
   assert.equal(h.ctx.pending, true);
   h.a.playState = 'finished';
   h.tick();

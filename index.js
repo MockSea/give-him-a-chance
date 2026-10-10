@@ -267,6 +267,10 @@
   function transition(source, destination, from, to) {
     const stage = extra(document.createElement('div'));
     stage.className = 'route-stage';
+    // Safari can extend a viewport-fixed container's background into its bars.
+    // Supply the destination tint on that container; the opaque snapshots above
+    // it still paint exactly the same source, travel and destination frames.
+    stage.style.backgroundColor = destination.style.background;
     document.body.append(stage);
     const returning = to === home;
     if (from === home || returning) {
@@ -356,6 +360,9 @@
       pending = true;
       complete = href === home ? () => restIndex(old.to) : () => { restDeck(); window.scrollTo(0, old.deckScroll); };
       metadata(href === home ? original : routes.get(href).doc);
+      motion.fromTint = old.toTint;
+      motion.toTint = old.fromTint;
+      document.querySelector('.route-stage').style.backgroundColor = motion.toTint;
       const time = Math.max(0, Math.min(duration, animations[0].currentTime ?? 0));
       const rate = -animations[0].playbackRate;
       // play() auto-rewinds at a boundary. An immediate Back at time zero
@@ -405,7 +412,8 @@
       // snapshots, so the final sampled frame and the live frame agree.
       root.classList.add('leaving');
       index.inert = app.inert = true;
-      motion = { from, to: href, deckScroll: from === home ? 0 : sourceScroll, kind: from === home || href === home ? 'index' : 'swap' };
+      motion = { from, to: href, fromTint: source.style.background, toTint: destination.style.background,
+        deckScroll: from === home ? 0 : sourceScroll, kind: from === home || href === home ? 'index' : 'swap' };
       watchFinish(ticket);
     } catch {
       if (ticket === revision) { settle(); location.assign(href); }
