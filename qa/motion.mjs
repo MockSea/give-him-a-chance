@@ -171,6 +171,13 @@ async function sample(page, action, name, destination, shots, engine, t) {
         copy: [...stage.querySelectorAll('[data-route-copy]')].map((el) => ({
           role: el.dataset.routeCopy, opacity: +getComputedStyle(el).opacity,
         })),
+        material: stage.dataset.kind === 'index' ? {
+          papers: stage.querySelectorAll('.route-paper').length,
+          paperVisible: getComputedStyle(stage.querySelector('.route-paper')).visibility,
+          endpointVisibility: [...stage.querySelectorAll('.route-preview, .route-surface > .route-view')]
+            .map((el) => getComputedStyle(el).visibility),
+          paper: rect(stage.querySelector('.route-paper')),
+        } : null,
         viewport: { width: innerWidth, height: innerHeight },
         opacity: layers.map((el) => +getComputedStyle(el).opacity),
         background: getComputedStyle(surface).backgroundColor,
@@ -210,6 +217,11 @@ async function sample(page, action, name, destination, shots, engine, t) {
   t.check(`${name}: surface is stationary throughout both text fades`,
     clipAt(0) === clipAt(EXIT) && clipAt(LAND) === clipAt(DURATION));
   if (records[0].kind === 'index') {
+    t.check(`${name}: travel paints one rounded paper and no endpoint slabs`, records
+      .filter((f) => f.ms > EXIT && f.ms < LAND).every((f) =>
+        f.material.papers === 1 && f.material.paperVisible === 'visible' &&
+        f.material.endpointVisibility.every((v) => v === 'hidden') &&
+        f.material.paper.width > 0 && f.material.paper.height > 0));
     t.check(`${name}: selected ground stays one colour`, records.every((f) => f.background === records[0].background));
     const areas = records.map((f) => (f.coverage.right - f.coverage.left) * (f.coverage.bottom - f.coverage.top));
     const sign = Math.sign(areas.at(-1) - areas[0]);

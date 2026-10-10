@@ -437,7 +437,7 @@ async function runIndex(ctx, base, t, opts) {
   const atRest = () => page.evaluate(() => ({
     url: location.href,
     leaving: document.documentElement.classList.contains('leaving'),
-    sheets: document.querySelectorAll('.takeover').length,
+    sheets: document.querySelectorAll('.takeover, .route-stage, .route-view, .route-preview, .route-surface, .route-paper').length,
     panels: document.querySelectorAll('.panel').length,
     first: document.querySelector('.panel').getBoundingClientRect().width,
   }));
@@ -556,6 +556,27 @@ async function runIndex(ctx, base, t, opts) {
   await page.waitForFunction(() => document.documentElement.classList.contains('leaving'));
   r = await back();
   t.check(P('back during expansion leaves the index interactive'), restOk(r), restDetail(r));
+
+  // Cancellation of even one owned animation must synchronously retire the
+  // whole snapshot tree on the next event turn, without waiting 690ms.
+  await page.locator('.panel:nth-child(2) .title a').tap();
+  await page.waitForFunction(() => !!document.querySelector('.route-stage'));
+  await page.evaluate(() => document.querySelector('.route-stage').getAnimations({ subtree: true })[0].cancel());
+  await page.waitForTimeout(50);
+  t.check(P('cancel removes every clone and restores interaction'), await page.evaluate(() =>
+    !window.routeBusy && !document.documentElement.classList.contains('leaving') &&
+    !document.querySelector('.route-stage, .route-view, .route-preview, .route-surface, .route-paper') &&
+    document.querySelectorAll('.panel').length === 2 && !document.getElementById('app').inert));
+  r = await back();
+  t.check(P('back after cancellation returns to rest'), restOk(r), restDetail(r));
+
+  // Repeated direction changes reuse one stage and leave no cloned links.
+  await page.locator('.panel:nth-child(1) .title a').tap();
+  await page.waitForURL(`${base}${P1}`);
+  await page.goBack({ waitUntil: 'commit' });
+  await page.goForward({ waitUntil: 'commit' });
+  r = await back();
+  t.check(P('interrupted Back Forward Back returns to rest'), restOk(r), restDetail(r));
 
   t.check(P('no console errors or failed requests'), errors.length === 0, errors.join(' | '));
   await page.close();

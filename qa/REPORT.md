@@ -1,4 +1,70 @@
-# Round 4: motion fixes
+# Round 5: cleanup and surface fixes
+
+Implemented, **not committed**. Browser verification remains blocked in this
+session; no round-5 browser pass totals or new frame sheets are claimed.
+
+## Supplied evidence and fixes
+
+- `qa/brief/r4-qa.log` records two failures for Back after a double tap
+  (`leaving=true`, five panels), followed by a strict locator crash on two
+  worth-your-time links. The old `sheets` count only looked for `.takeover`,
+  so its zero did not rule out a surviving `.route-stage` and cloned panels.
+- Reversal now handles zero or unresolved animation time as the index endpoint.
+  Calling `play()` with negative playback at that boundary can auto-rewind to
+  the other end. Interior reversals pause, set a shared time/direction and resume.
+  Completion observes the shared animation clock instead of awaiting an aggregate
+  of per-animation promises across direction changes. These address lifecycle
+  hazards found in the code; the exact browser failure is not reproduced here.
+- Finish, cancellation of any owned animation, superseding navigation and page
+  lifecycle interruption use the same cleanup. Ownership is cleared before
+  cancelling animations; stale cancellation callbacks cannot settle a newer route.
+  Cleanup cancels the completion observer, removes owned stages plus orphan stages,
+  restores inert/pointer state and resumes paused live animations.
+- Inspected `qa/brief/r4-webkit-realtime.jpg`. The stepped shapes correspond to
+  the horizontal exchange of two different endpoint layouts, including their
+  offset paper/under-card stacks. Index motion now uses one rounded paper proxy,
+  interpolating its measured endpoint rectangle inside the opaque moving ground.
+  Both endpoint layouts stay hidden during travel. The stationary index and deck
+  layouts paint only during their respective text phases. Siblings remain beneath
+  the opaque surface. Text timing (120/450/120ms), easing and return direction stay
+  unchanged; browser rendering of this correction still needs verification.
+
+## Strict regression checks
+
+- Keep the existing double-tap checks, 700ms return window and strict link locators.
+  Count all route snapshot nodes at rest, including `.route-stage`, rather than
+  only the obsolete `.takeover` selector.
+- Add cancellation during expansion and Back/Forward/Back interruption checks.
+  Require zero snapshot nodes, exactly two panels and restored interaction.
+- Deterministic motion samples now also require exactly one visible material paper
+  with positive dimensions and hidden endpoint layouts during travel. Existing
+  endpoint pixel tolerance (200 pixels at >16 channel difference), zero probe
+  leaks, typography, phase timing, luminance and real-time checks remain intact.
+- `qa/router-lifecycle.mjs` exercises the actual lifecycle functions in a small
+  Node VM harness: zero/null-time reversal, shared interior reversal, finish,
+  cancellation and stale callbacks. This checks ownership/control flow, not native
+  WAAPI timing, browser history, layout or rendering.
+
+## Validation
+
+Passed: `node qa/router-lifecycle.mjs`, syntax checks for `index.js`, `app.js`,
+`qa/qa.mjs`, `qa/motion.mjs`, `qa/router-lifecycle.mjs`, and `git diff --check`.
+
+Attempted the full browser runner; it exits before browser tests with
+`listen EPERM: operation not permitted 127.0.0.1`. Approval escalation is disabled
+in this session. Run the unchanged full runner in an environment that permits it:
+
+```sh
+node qa/qa.mjs /Users/moxy/projects/dsa-6528-viz/node_modules/playwright/index.mjs
+```
+
+Review regenerated WebKit and Chromium real-time sheets, especially middle
+frames of expansion/return, and confirm the cancellation/interruption checks.
+Supplied round-4 evidence remains untouched.
+
+---
+
+# Round 4: motion fixes (historical report)
 
 Implemented, not committed. **Browser verification is blocked in this session.**
 The supplied round-3 WebKit frame sheet and existing `qa/shots/` PNG/JSON evidence

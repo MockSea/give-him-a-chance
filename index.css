@@ -131,6 +131,7 @@ html.index, html.index body { background: var(--ink); }
 .route-view, .route-surface, .route-preview { position: absolute; inset: 0; isolation: isolate; }
 .route-stage > .route-view { z-index: 0; }
 .route-stage > .route-surface { z-index: 1; }
+.route-paper { position: absolute; box-sizing: border-box; }
 .route-stage * { animation: none !important; }
 .route-stage .panel { transition: none; }
 html.leaving body { pointer-events: none; }

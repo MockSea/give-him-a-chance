@@ -13,7 +13,7 @@
   let index, links, routes, original;
   let app = document.getElementById('app'), skip = document.querySelector('body > .skip');
   let current = app ? address() : home, scroll = 0, revision = 0, pending = false;
-  let animations = [], extras = [], pausedLive = [], complete, motion;
+  let animations = [], extras = [], pausedLive = [], complete, motion, finishFrame;
   let engine = window.mountDeck ? Promise.resolve() : null;
   const meta = [...document.querySelectorAll('meta[name], meta[property]')];
 
@@ -105,8 +105,13 @@
     return job;
   }
   function cleanup() {
-    animations.forEach((a) => a.cancel()); animations = [];
+    cancelAnimationFrame(finishFrame);
+    const retiring = animations; animations = [];
+    retiring.forEach((a) => a.cancel());
     extras.forEach((el) => el.remove()); extras = [];
+    // Also remove an orphan if construction was interrupted before ownership
+    // could be recorded. Nothing from a route snapshot survives settlement.
+    document.querySelectorAll('.route-stage').forEach((el) => el.remove());
     pausedLive.forEach((a) => a.play()); pausedLive = [];
     root.classList.remove('leaving');
     index.inert = false;
@@ -152,7 +157,42 @@
     current = href;
   }
   function animate(el, frames, options = timing) {
-    const a = el.animate(frames, options); animations.push(a); return a;
+    const a = el.animate(frames, options);
+    animations.push(a);
+    a.finished.catch(() => {});
+    a.addEventListener('cancel', () => {
+      if (!animations.includes(a)) return;
+      revision++;
+      settle();
+    });
+    return a;
+  }
+  function watchFinish(ticket) {
+    cancelAnimationFrame(finishFrame);
+    // Observe the shared clock, not an aggregate of finished promises. A
+    // reversal can replace those promises while earlier waiters still exist.
+    const frame = () => {
+      if (ticket !== revision || !motion) return;
+      if (animations[0]?.playState === 'finished') { settle(); return; }
+      finishFrame = requestAnimationFrame(frame);
+    };
+    finishFrame = requestAnimationFrame(frame);
+  }
+  function pose(el) {
+    const r = el.getBoundingClientRect(), style = getComputedStyle(el);
+    return { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`,
+      height: `${r.height}px`, borderRadius: style.borderRadius,
+      backgroundColor: style.backgroundColor, boxShadow: style.boxShadow };
+  }
+  function endpoint(el, atStart) {
+    // Only endpoint layouts paint; during travel one material proxy paints.
+    animate(el, atStart ? [
+      { visibility: 'visible', offset: 0 }, { visibility: 'visible', offset: exitEnd },
+      { visibility: 'hidden', offset: exitEnd }, { visibility: 'hidden', offset: 1 },
+    ] : [
+      { visibility: 'hidden', offset: 0 }, { visibility: 'hidden', offset: moveEnd },
+      { visibility: 'visible', offset: moveEnd }, { visibility: 'visible', offset: 1 },
+    ]);
   }
   function extra(el) { el.inert = true; el.setAttribute('aria-hidden', 'true'); extras.push(el); return el; }
   // Preserve layout dimensions and viewport offset before changing route classes,
@@ -256,9 +296,24 @@
       stage.dataset.returning = String(returning);
       // The selected colour covers its siblings. It never fades through them.
       material(surface, ...frames(inset, full));
-      // Clips exchange only opaque material while all route copy is invisible.
-      material(preview, ...frames(full, `inset(0px ${innerWidth}px 0px 0px)`));
-      material(deckView, ...frames(`inset(0px 0px 0px ${innerWidth}px)`, full));
+      // Measure both endpoint papers after insertion. During travel neither
+      // endpoint tree paints: their offset cards/under-cards cannot make slabs.
+      const paper = document.createElement('div');
+      paper.className = 'route-paper';
+      const [paperFrom, paperTo] = frames(pose(card.querySelector('.mini')), pose(deckView.querySelector('.card')));
+      surface.append(paper);
+      animate(paper, [
+        { ...paperFrom, offset: 0 },
+        { ...paperFrom, offset: exitEnd, easing: materialEase },
+        { ...paperTo, offset: moveEnd }, { ...paperTo, offset: 1 },
+      ]);
+      preview.style.visibility = 'hidden';
+      endpoint(deckView, returning);
+      animate(paper, [
+        { visibility: 'hidden', offset: 0 }, { visibility: 'hidden', offset: exitEnd },
+        { visibility: 'visible', offset: exitEnd }, { visibility: 'visible', offset: moveEnd },
+        { visibility: 'hidden', offset: moveEnd }, { visibility: 'hidden', offset: 1 },
+      ]);
       copyMotion(preview, returning ? 'incoming' : 'outgoing');
       copyMotion(deckView, returning ? 'outgoing' : 'incoming');
       // Sibling/masthead copy also waits for the returning surface to land.
@@ -297,11 +352,13 @@
       pending = true;
       complete = href === home ? () => restIndex(old.to) : () => { restDeck(); window.scrollTo(0, old.deckScroll); };
       metadata(href === home ? original : routes.get(href).doc);
-      const time = animations[0].currentTime;
+      const time = Math.max(0, Math.min(duration, animations[0].currentTime ?? 0));
       const rate = -animations[0].playbackRate;
-      animations.forEach((a) => { a.currentTime = time; a.playbackRate = rate; a.play(); });
-      await Promise.all(animations.map((a) => a.finished.catch(() => {})));
-      if (ticket === revision) settle();
+      // play() auto-rewinds at a boundary. An immediate Back at time zero
+      // must settle at home, not restart a full reverse trip from the deck.
+      if ((rate < 0 && time === 0) || (rate > 0 && time === duration)) { settle(); return; }
+      animations.forEach((a) => { a.pause(); a.playbackRate = rate; a.currentTime = time; a.play(); a.finished.catch(() => {}); });
+      watchFinish(ticket);
       return;
     }
     // Finish any interrupted route before starting the latest history intent.
@@ -345,8 +402,7 @@
       root.classList.add('leaving');
       index.inert = app.inert = true;
       motion = { from, to: href, deckScroll: from === home ? 0 : sourceScroll, kind: from === home || href === home ? 'index' : 'swap' };
-      await Promise.all(animations.map((a) => a.finished.catch(() => {})));
-      if (ticket === revision) settle();
+      watchFinish(ticket);
     } catch {
       if (ticket === revision) { settle(); location.assign(href); }
     }
