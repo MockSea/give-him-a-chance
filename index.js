@@ -252,7 +252,11 @@
     // normal opacity, colour and wrapping. Paper and grounds remain opaque.
     view.querySelectorAll('.mini > *, .card > *, .dock, .masthead, .colophon').forEach((el) => {
       el.dataset.routeCopy = role;
-      const opacity = getComputedStyle(el).opacity;
+      const style = getComputedStyle(el);
+      // The result dock has no rendered box. Engines need not apply a WAAPI
+      // effect to display:none content; give it an explicit empty copy pose.
+      if (style.display === 'none') { el.style.opacity = '0'; return; }
+      const opacity = style.opacity;
       animate(el, role === 'outgoing' ? [
         { opacity, offset: 0 }, { opacity: 0, offset: exitEnd }, { opacity: 0, offset: 1 },
       ] : [

@@ -253,6 +253,9 @@ h1:focus-visible { outline: none; }
 /* ---- dock ------------------------------------------------------------------ */
 
 .dock {
+  /* Route opacity creates a stacking context even at opacity:1. Keep the
+     live dock in that same paint order so card shadows cannot pop over it. */
+  isolation: isolate;
   height: var(--dock-h);
   flex: none;
   display: flex;

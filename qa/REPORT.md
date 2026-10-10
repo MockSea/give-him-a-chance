@@ -1,3 +1,99 @@
+# Round 6: copy phases and endpoint parity
+
+Implemented, **not committed**. The full browser rerun is blocked by this
+session's sandbox; the findings below distinguish saved evidence from new checks.
+
+## Diagnosis: mixed causes, including a real paint-order pop
+
+The supplied `qa/brief/r5-qa.log` has 44 Chromium and 31 WebKit failures:
+71 endpoint comparisons and four verdict copy-phase failures. Both supplied
+JPEG crops were inspected. The final crop is not just a displaced button:
+the live card/under-card shadow covers the tops of the white discs, while the
+animated snapshot paints those discs above that shadow.
+
+- **Real endpoint paint-order defect:** `copyMotion()` animates `.dock` opacity.
+  An opacity animation establishes a stacking context even at its opaque endpoint.
+  The live dock previously had no such context, allowing positioned card shadows
+  to paint over it after cleanup. `.dock` now has `isolation:isolate` in both live
+  and snapshot layouts. This keeps the buttons above the card shadows throughout
+  the handoff, without moving or resizing them.
+- **First-frame rasterization:** the existing Chromium `expand-p1` PNGs differ
+  in 2,108 pixels above the unchanged >16 channel threshold, bounded by
+  (155,343)-(375,1531) in device pixels. Those are the two rotated Part badges,
+  not a settling deck card. Giving `.part` a persistent `will-change:opacity`
+  keeps its compositor preparation consistent with its route fade. This is a
+  targeted rasterization correction; its new pixel total requires browser QA.
+- **Unlike capture settings also existed:** before/live used
+  `animations:'disabled'`; sampled frames did not. Deterministic QA now pins
+  `.nudge` and `.card.settle` to their resting CSS pose and disables `.act`,
+  `.disc` and `.btn` transitions before the source screenshot. The same stylesheet
+  applies to snapshots, live destinations and the direct-load comparison. All
+  these screenshots allow animations, so screenshot capture itself never advances
+  or resets them. Route WAAPI remains paused/seekable and otherwise unchanged.
+  Snapshot CSS also disables transitions so copied computed poses cannot drift.
+- **No evidence of route-arrival settle replay:** `mountDeck()` initializes with
+  `paint(state, 'none')`; `.settle` is applied only by the explicit restart path.
+  Normal route arrival therefore does not start that animation. The real-time
+  runner now leaves decorations running and checks for an arrival `.settle`.
+
+For reproducibility, inspection of the existing `qa/shots/` expand-p1 pairs
+counted these pixels using the suite's existing >16 channel threshold:
+
+| Saved pair | Chromium | WebKit |
+| --- | ---: | ---: |
+| before / 000 | 2,108 | 0 |
+| 690 / live | 26,821 | 20,644 |
+
+The final differences are in the dock. These saved full-frame artifacts do not
+exactly match the approximate counts supplied for the Round 5 JPEG crops; they
+are supporting evidence, **not new Round 6 captures or a reproduction of every
+Round 5 failure**. In particular the saved Chromium verdict JSON has no phase
+violation, while the supplied log reports one. No claim is made that these
+artifacts all came from the same run.
+
+## Verdict all-parts
+
+The saved WebKit verdict records identify exactly one stuck outgoing opacity:
+copy root 23 remains at 1 from 120 through 690ms, while all nine preceding
+outgoing roots fade to zero. The DOM order from `renderResult()` and the
+`copyMotion()` selector identifies that final root as `.dock`.
+`[data-screen="result"] .dock` is `display:none`. Relying on a WAAPI opacity
+effect on this non-rendered root is not portable; it also makes the ledger
+report coexistence despite that root having no painted content.
+
+The builder now sets hidden copy roots explicitly to opacity zero and does not
+animate them. It retains their copy-role marker, so the existing strict phase
+checks still inspect them. Rendered verdict roots still fade out over 120ms,
+remain zero during all 450ms of travel, and incoming roots fade in only after
+570ms. No visibility filter was added to relax either failing assertion.
+Future records include each root's class and display value to make this
+attribution explicit. Real-time coverage now includes a scrolled verdict's
+all-parts return, in addition to the existing deterministic case.
+
+## Validation
+
+Passed: `node qa/router-copy.mjs`, `node qa/router-lifecycle.mjs`, syntax checks
+for the changed JavaScript, and `git diff --check`. The new regression runs the
+actual copy builder with a hidden dock that receives no animation effect; it
+checks phase boundaries, zero overlap, zero copy during travel and intermediate
+fade values. It is not a browser rendering test.
+
+Attempted the full runner:
+
+```sh
+node qa/qa.mjs /Users/moxy/projects/dsa-6528-viz/node_modules/playwright/index.mjs
+```
+
+It fails before engine tests with `listen EPERM: operation not permitted
+127.0.0.1`. A standalone Chromium launch also fails with macOS
+`bootstrap_check_in ... Permission denied (1100)`. Browser execution remains
+unverified here; no new pass totals or screenshots are claimed. The unchanged
+200-pixel endpoint limit, >16 channel threshold, phase timing, zero-leak probe
+checks and full navigation matrix remain in place. The command above still
+needs to pass in a browser-capable session before calling Round 6 browser-clean.
+
+---
+
 # Round 5: cleanup and surface fixes
 
 Implemented, **not committed**. Browser verification remains blocked in this

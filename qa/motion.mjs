@@ -4,8 +4,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-// The swipe hint wiggles forever; freeze CSS animations for the end-state comparisons.
-const still = { animations: 'disabled' };
+// Never let screenshot() fast-forward/reset animations at just the endpoints.
+// The same CSS pose applies to live DOM and clones for the entire sample.
+const still = { animations: 'allow' };
+const decorativePose = `
+  .nudge, .card.settle { animation: none !important; }
+  .act, .act .disc, .btn { transition: none !important; }
+`;
+async function pinDecorations(page) {
+  await page.evaluate((css) => {
+    if (document.getElementById('qa-decorative-pose')) return;
+    const style = document.createElement('style');
+    style.id = 'qa-decorative-pose'; style.textContent = css;
+    document.head.append(style);
+  }, decorativePose);
+}
 
 // Chromium re-rasterises shadows after compositing ends; a few dozen pixels
 // shift by a shade. Count clearly different pixels instead of comparing bytes.
@@ -94,7 +107,7 @@ async function instrument(page) {
   await ready(page);
   // Freeze only incidental CSS motion. Never use animations:disabled on a
   // paused route: Playwright would finish the very animations being sampled.
-  await page.addStyleTag({ content: '.nudge { animation: none !important; }' });
+  await pinDecorations(page);
   await page.evaluate(() => {
     if (window.motionInstrumented) return;
     window.motionInstrumented = true;
@@ -170,6 +183,7 @@ async function sample(page, action, name, destination, shots, engine, t) {
       return { ms, kind: stage.dataset.kind, titles, moving, clips, coverage,
         copy: [...stage.querySelectorAll('[data-route-copy]')].map((el) => ({
           role: el.dataset.routeCopy, opacity: +getComputedStyle(el).opacity,
+          element: el.className, display: getComputedStyle(el).display,
         })),
         material: stage.dataset.kind === 'index' ? {
           papers: stage.querySelectorAll('.route-paper').length,
@@ -277,7 +291,7 @@ export async function motionFrames(ctx, base, shots, engine, t) {
     await capture(`all-parts-back-p${part}`, () => page.goBack(), slug);
     await capture(`all-parts-forward-index-p${part}`, () => page.goForward(), '');
     // Keep the original direct-load equality check.
-    await page.goto(base + slug); await ready(page);
+    await page.goto(base + slug); await ready(page); await pinDecorations(page);
     const direct = await page.screenshot(still);
     if (live) t.check(`motion part ${part}: expanded deck equals direct load`, await sameImage(page, live, direct));
   }
@@ -307,14 +321,19 @@ export async function motionFrames(ctx, base, shots, engine, t) {
 export async function realtimeFrames(ctx, base, shots, engine, t) {
   const page = await ctx.newPage();
   await page.goto(base); await ready(page);
-  await page.addStyleTag({ content: '.nudge { animation: none !important; }' });
-  for (const [name, action, target] of [
+  // Keep decorative motion running here; deterministic pose normalization
+  // belongs only to motionFrames, so it cannot conceal a live landing replay.
+  for (const [name, action, target, setup] of [
     ['open', '.panel:nth-child(1) .title a', P1],
     ['all-parts', '#card a.all', ''],
     ['open2', '.panel:nth-child(2) .title a', P2],
     ['browser-back', () => page.goBack({ waitUntil: 'commit' }), ''],
+    ['verdict-open', '.panel:nth-child(1) .title a', P1],
+    ['verdict-all-parts', '#card a.all', '', () => verdict(page)],
   ]) {
+    if (setup) await setup();
     await ready(page);
+    if (typeof action === 'string') await page.locator(action).scrollIntoViewIfNeeded();
     const buffers = [await page.screenshot()], labels = ['before'];
     await page.evaluate(() => {
       window.routeTrace = [];
@@ -350,9 +369,11 @@ export async function realtimeFrames(ctx, base, shots, engine, t) {
       trace.length > 10 && trace.at(-1).now - trace[0].now >= DURATION - 50);
     t.check(`realtime ${name}: many painted surface sizes`, new Set(trace.map((f) => f.clip)).size > 10);
     t.check(`realtime ${name}: no simultaneous outgoing/incoming text`, trace.length > 0 && trace.every((f) => !f.overlap));
-    if (name === 'all-parts' || name === 'browser-back') {
+    if (name.endsWith('all-parts') || name === 'browser-back') {
       t.check(`realtime ${name}: uses the reverse index transition`, trace.length > 0 && trace.every((f) => f.returning === 'true'));
     }
+    t.check(`realtime ${name}: landing does not replay card settle`,
+      await page.locator('#app .card.settle').count() === 0);
     const { png } = await evidence(page, buffers, labels);
     fs.writeFileSync(path.join(shots, `${engine}-realtime-${name}-strip.png`), Buffer.from(png, 'base64'));
     fs.writeFileSync(path.join(shots, `${engine}-realtime-${name}.json`), JSON.stringify(trace, null, 2));
