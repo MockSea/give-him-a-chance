@@ -57,10 +57,10 @@ function positionAfter(history) {
     if (phase === 'main') {
       if (answer === main.pass) { step += 1; continue; }
       if (main.rescue) { phase = 'rescue'; continue; }
-      return { verdict: 'NO', failedAt: step };
+      return { verdict: 'NO', failedAt: step, answer };
     }
     if (answer === main.rescue.pass) { step += 1; phase = 'main'; continue; }
-    return { verdict: 'NO', failedAt: step, rescued: false };
+    return { verdict: 'NO', failedAt: step, rescued: false, answer };
   }
   if (step >= STEPS.length) return { verdict: 'YES' };
   return { step, phase };
@@ -69,6 +69,13 @@ function positionAfter(history) {
 function questionAt(pos) {
   const main = STEPS[pos.step];
   return pos.phase === 'rescue' ? main.rescue : main;
+}
+
+// Her reason for a NO. A step can give a different one per losing answer
+// (`whyIf: { yes, no }`, used when both answers lose); otherwise it's `why`.
+function whyFor(pos) {
+  const s = STEPS[pos.failedAt];
+  return (s.whyIf && s.whyIf[pos.answer]) || s.why;
 }
 
 function pickRoast(pos) {
@@ -129,7 +136,7 @@ function renderStart() {
 function renderQuestion(pos) {
   const q = questionAt(pos);
   const parts = [marksList(pos), el('div', { class: 'spacer top' }), el('h1', { class: 'q' }, [q.q])];
-  // A rescue can carry her aside about it, shown under the question.
+  // Any question can carry her aside or explanation, shown under it.
   if (q.note) parts.push(el('p', { class: 'note' }, [q.note, ' ', el('cite', {}, [`— ${firstName()}`])]));
   parts.push(el('div', { class: 'spacer' }));
   parts.push(el('div', { class: 'stamp yes', 'aria-hidden': 'true' }, ['Yes']));
@@ -170,7 +177,7 @@ function renderResult(pos, s) {
   const verdict = el('h1', { class: `verdict ${isNo ? 'no' : 'yes'}` }, [isNo ? VERDICT.NO : VERDICT.YES]);
   if (isNo) {
     parts.push(el('div', { class: 'slam' }, [verdict]));
-    parts.push(whyBlock(STEPS[pos.failedAt].why));
+    parts.push(whyBlock(whyFor(pos)));
   } else {
     parts.push(el('div', { class: 'slam' }, [heartBurst(), verdict]));
     parts.push(whyBlock({ text: YES_LINE, said: true }));
@@ -392,7 +399,7 @@ function shareText() {
   const pos = positionAfter(state.history);
   const verdict = pos.verdict === 'NO' ? VERDICT.NO : VERDICT.YES;
   const where = pos.verdict === 'NO'
-    ? `\n“${STEPS[pos.failedAt].why.text}”`
+    ? `\n“${whyFor(pos).text}”`
     : `\n“${YES_LINE}”`;
   const roast = state.roast ? `\n“${state.roast}” — ${ROASTER}` : '';
   return `${TITLE_TEXT} I ran him through ${CREDIT.handle}'s flowchart.\n\nVerdict: ${verdict}${where}${roast}\n\n${location.href}`;

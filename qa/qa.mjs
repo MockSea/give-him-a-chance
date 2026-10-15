@@ -1,4 +1,4 @@
-// End-to-end QA for the index and both decks, in chromium (390x844, touch)
+// End-to-end QA for the index and every deck, in chromium (390x844, touch)
 // and webkit (iPhone 15). Serves the repo itself with python3 -m http.server.
 //
 //   node qa/qa.mjs [path/to/playwright/index.mjs]
@@ -21,10 +21,15 @@ const { chromium, webkit, devices } = await import(PW);
 // Where each part lives under the site root.
 const P1 = 'give-him-a-chance/';
 const P2 = 'worth-your-time/';
+const P3 = 'delete-his-number/';
 const INDEX_TITLE = "Sherita's flowcharts";
 // Computed colours of each theme's ground and paper, as the browser reports them.
 const PINK = { ground: 'rgb(236, 141, 177)', paper: 'rgb(247, 172, 199)' };
 const LILAC = { ground: 'rgb(186, 148, 230)', paper: 'rgb(212, 183, 245)' };
+const APRICOT = { ground: 'rgb(240, 168, 116)', paper: 'rgb(251, 199, 160)' };
+const PANELS = 3;
+// Her reason on a NO screen: a per-answer `whyIf` wins over `why` (app.js whyFor).
+const whyOf = (s, ans) => (s.whyIf && s.whyIf[ans]) || s.why;
 
 fs.mkdirSync(SHOTS, { recursive: true });
 
@@ -191,7 +196,7 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
     rgbTheme: (() => { const c = document.createElement('i'); c.style.color = document.querySelector('meta[name="theme-color"]').content; document.body.append(c); const v = getComputedStyle(c).color; c.remove(); return v; })(),
   }));
   const theme = opts.theme || PINK;
-  t.check(P(`painted in ${opts.theme === LILAC ? 'lilac' : 'pink'}`), head.ground === theme.ground && head.paper === theme.paper, `${head.ground} / ${head.paper}`);
+  t.check(P(`painted in ${opts.themeName || 'pink'}`), head.ground === theme.ground && head.paper === theme.paper, `${head.ground} / ${head.paper}`);
   t.check(P('theme-color meta matches the ground'), head.rgbTheme === theme.ground, head.themeColor);
   t.check(P('<title> and og:title match the deck title'), head.title === deck.TITLE_TEXT && head.og === deck.TITLE_TEXT, `${head.title} / ${head.og}`);
   t.check(P('font loads (relative path resolves)'), head.font);
@@ -203,7 +208,8 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
   let h = await noHScroll(page);
   t.check(P(`no horizontal scroll on start at ${opts.width}`), h.ok, h.detail);
 
-  // all-pass path -> YES
+  // all-pass path -> YES (a deck whose last step has pass: null has no YES)
+  const yesReachable = steps.every((s) => s.pass !== null);
   await start(page);
   let v = await view(page);
   t.check(P('start deals question 1'), v.screen === 'question' && v.h1 === steps[0].q);
@@ -212,12 +218,13 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
   t.check(P('marks grid has one column per question'), cols === steps.length, String(cols));
   h = await noHScroll(page);
   t.check(P(`no horizontal scroll on a question at ${opts.width}`), h.ok, h.detail);
+  if (yesReachable) {
   await toStep(page, steps, steps.length);
   v = await view(page);
   t.check(P('all-pass path reaches YES'), v.screen === 'result' && v.pos.verdict === 'YES' && v.h1 === deck.VERDICT.YES, v.h1);
   t.check(P('YES shows her yes line'), v.quote === deck.YES_LINE);
   const next = await page.locator('#card a.next').count();
-  t.check(P(deck.NEXT ? 'YES has the part 2 link' : 'YES has no next-part link'), next === (deck.NEXT ? 1 : 0));
+  t.check(P(deck.NEXT ? 'YES has the next-part link' : 'YES has no next-part link'), next === (deck.NEXT ? 1 : 0));
   await page.screenshot({ path: path.join(SHOTS, `${opts.engine}-${opts.slug}-yes.png`), fullPage: true });
   h = await noHScroll(page);
   t.check(P(`no horizontal scroll on result at ${opts.width}`), h.ok, h.detail);
@@ -230,6 +237,22 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
   t.check(P('share text has the deck title, the verdict and this URL'),
     shared.startsWith(`${deck.TITLE_TEXT} I ran him through ${deck.CREDIT.handle}'s flowchart.`)
     && shared.includes(`Verdict: ${deck.VERDICT.YES}`) && shared.trim().endsWith(url), JSON.stringify(shared));
+  } else {
+    // Every answer on the last step loses, each with its own reason.
+    const lastI = steps.length - 1;
+    for (const ans of ['yes', 'no']) {
+      if (ans === 'no') { await restart(page); await start(page); }
+      await toStep(page, steps, lastI);
+      await answer(page, ans);
+      v = await view(page);
+      t.check(P(`last question "${ans}" -> NO with her ${ans} reason`),
+        v.pos.verdict === 'NO' && v.pos.failedAt === lastI && v.h1 === deck.VERDICT.NO && v.quote === whyOf(steps[lastI], ans).text, `${v.h1} | ${v.quote}`);
+      t.check(P(`last question "${ans}" result has no next-part link`), await page.locator('#card a.next').count() === 0);
+      await page.screenshot({ path: path.join(SHOTS, `${opts.engine}-${opts.slug}-last-${ans}.png`), fullPage: true });
+      h = await noHScroll(page);
+      t.check(P(`no horizontal scroll on result at ${opts.width}`), h.ok, h.detail);
+    }
+  }
 
   // restart from result, then each failure path
   await restart(page);
@@ -240,18 +263,21 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
     const s = steps[i];
     await start(page);
     await toStep(page, steps, i);
+    v = await view(page);
+    t.check(P(`Q${i + 1} note ${s.note ? 'shown' : 'absent'}`), v.note === (s.note || null), v.note);
+    if (s.note) await page.screenshot({ path: path.join(SHOTS, `${opts.engine}-${opts.slug}-q-${i + 1}.png`) });
     await answer(page, flip(s.pass));
     v = await view(page);
     if (!s.rescue) {
       t.check(P(`Q${i + 1} fail, no rescue -> NO with her why`),
-        v.pos.verdict === 'NO' && v.pos.failedAt === i && v.h1 === deck.VERDICT.NO && v.quote === s.why.text, `${v.h1} | ${v.quote}`);
+        v.pos.verdict === 'NO' && v.pos.failedAt === i && v.h1 === deck.VERDICT.NO && v.quote === whyOf(s, flip(s.pass)).text, `${v.h1} | ${v.quote}`);
       if (i === 0 || opts.shareEveryNo) {
         await page.evaluate(() => { window.__shared = null; });
         await page.locator('#card .actions .btn').first().tap();
         await page.waitForFunction(() => window.__shared !== null);
         const txt = await page.evaluate(() => window.__shared);
         t.check(P('NO share text has title, verdict, why and URL'),
-          txt.startsWith(deck.TITLE_TEXT) && txt.includes(`Verdict: ${deck.VERDICT.NO}`) && txt.includes(s.why.text) && txt.trim().endsWith(url), JSON.stringify(txt));
+          txt.startsWith(deck.TITLE_TEXT) && txt.includes(`Verdict: ${deck.VERDICT.NO}`) && txt.includes(whyOf(s, flip(s.pass)).text) && txt.trim().endsWith(url), JSON.stringify(txt));
       }
       await restart(page);
       continue;
@@ -272,7 +298,7 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
     await answer(page, flip(s.rescue.pass));
     v = await view(page);
     t.check(P(`Q${i + 1} rescue fail -> NO with her why`),
-      v.pos.verdict === 'NO' && v.pos.failedAt === i && v.h1 === deck.VERDICT.NO && v.quote === s.why.text, `${v.h1} | ${v.quote}`);
+      v.pos.verdict === 'NO' && v.pos.failedAt === i && v.h1 === deck.VERDICT.NO && v.quote === whyOf(s, flip(s.rescue.pass)).text, `${v.h1} | ${v.quote}`);
     await restart(page);
   }
 
@@ -354,16 +380,17 @@ async function runDeck(ctx, base, deckPath, t, label, opts) {
   await page.waitForFunction(() => document.querySelectorAll('.panel').length > 0);
   await idle(page);
   const index = await page.evaluate(() => ({ href: location.href, title: document.title, panels: document.querySelectorAll('.panel').length }));
-  t.check(P('"all parts" goes to the index'), index.href === base && index.title === INDEX_TITLE && index.panels === 2, `${index.href} ${index.title}`);
+  t.check(P('"all parts" goes to the index'), index.href === base && index.title === INDEX_TITLE && index.panels === PANELS, `${index.href} ${index.title}`);
   if (deck.NEXT) {
+    const [nextPath, nextTitle] = opts.next;
     await page.goto(url);
     await idle(page);
     await start(page);
     await toStep(page, steps, steps.length);
-    await Promise.all([page.waitForURL(`${base}${P2}`), page.locator('#card a.next').tap()]);
+    await Promise.all([page.waitForURL(`${base}${nextPath}`), page.locator('#card a.next').tap()]);
     await page.waitForFunction(() => !!window.DECK);
     const there = await page.evaluate(() => ({ href: location.href, title: window.DECK && window.DECK.TITLE_TEXT }));
-    t.check(P('part 2 link goes to part 2'), there.href === `${base}${P2}` && there.title === 'Is he worth your time?', there.href);
+    t.check(P('next-part link goes to the next part'), there.href === `${base}${nextPath}` && there.title === nextTitle, there.href);
   }
 
   t.check(P('no console errors or failed requests'), errors.length === 0, errors.join(' | '));
@@ -415,11 +442,13 @@ async function runIndex(ctx, base, t, opts) {
   t.check(P('static title, description and og tags'), info.title === INDEX_TITLE && info.og === INDEX_TITLE && info.desc.length > 20, `${info.title} / ${info.og}`);
   t.check(P('font loads'), info.font);
   t.check(P('initial index does not load deck scripts'), !info.eagerDeck);
-  t.check(P('two panels, in order, pointing at their decks'), info.panels.length === 2
+  t.check(P('three panels, in order, pointing at their decks'), info.panels.length === PANELS
     && info.panels[0].part === 'Part 1' && info.panels[0].href === P1
-    && info.panels[1].part === 'Part 2' && info.panels[1].href === P2, JSON.stringify(info.panels.map((p) => [p.part, p.href])));
+    && info.panels[1].part === 'Part 2' && info.panels[1].href === P2
+    && info.panels[2].part === 'Part 3' && info.panels[2].href === P3, JSON.stringify(info.panels.map((p) => [p.part, p.href])));
   t.check(P('part 1 panel is pink'), info.panels[0].ground === PINK.ground && info.panels[0].paper === PINK.paper, `${info.panels[0].ground} / ${info.panels[0].paper}`);
   t.check(P('part 2 panel is lilac'), info.panels[1].ground === LILAC.ground && info.panels[1].paper === LILAC.paper, `${info.panels[1].ground} / ${info.panels[1].paper}`);
+  t.check(P('part 3 panel is apricot'), info.panels[2].ground === APRICOT.ground && info.panels[2].paper === APRICOT.paper, `${info.panels[2].ground} / ${info.panels[2].paper}`);
   t.check(P('each panel shows title, lede and the Sherita credit'), info.panels.every((p) => p.shown && p.title.length > 8 && p.lede.length > 10 && p.credit.includes('@sheritajanielle')));
   t.check(P('built-by-Moxy byline present'), info.byline);
   t.check(P('noscript note present'), info.noscript);
@@ -441,7 +470,7 @@ async function runIndex(ctx, base, t, opts) {
     panels: document.querySelectorAll('.panel').length,
     first: document.querySelector('.panel').getBoundingClientRect().width,
   }));
-  const restOk = (r) => r.url === base && !r.leaving && r.sheets === 0 && r.panels === 2 && r.first > 200;
+  const restOk = (r) => r.url === base && !r.leaving && r.sheets === 0 && r.panels === PANELS && r.first > 200;
   const restDetail = (r) => `${r.url} leaving=${r.leaving} sheets=${r.sheets} panels=${r.panels}`;
   const landed = () => page.evaluate(() => {
     const card = document.getElementById('card');
@@ -466,7 +495,7 @@ async function runIndex(ctx, base, t, opts) {
     return atRest();
   };
 
-  const decks = [[1, P1, 'Should you give this man a chance?'], [2, P2, 'Is he worth your time?']];
+  const decks = [[1, P1, 'Should you give this man a chance?'], [2, P2, 'Is he worth your time?'], [3, P3, 'Should you delete his number before November?']];
   for (const [n, deckPath, title] of decks) {
     for (let round = 1; round <= 2; round += 1) {
       const d = await open(n, deckPath);
@@ -566,7 +595,7 @@ async function runIndex(ctx, base, t, opts) {
   t.check(P('cancel removes every clone and restores interaction'), await page.evaluate(() =>
     !window.routeBusy && !document.documentElement.classList.contains('leaving') &&
     !document.querySelector('.route-stage, .route-view, .route-preview, .route-surface, .route-paper') &&
-    document.querySelectorAll('.panel').length === 2 && !document.getElementById('app').inert));
+    document.querySelectorAll('.panel').length === 3 && !document.getElementById('app').inert));
   r = await back();
   t.check(P('back after cancellation returns to rest'), restOk(r), restDetail(r));
 
@@ -622,12 +651,13 @@ async function engineRun(name, browserType, ctxOpts, smallOpts, base) {
   await ctx.addInitScript(INIT);
   const width = ctxOpts.viewport.width;
   await runIndex(ctx, base, t, { engine: name, width });
-  await runDeck(ctx, base, P1, t, 'part 1', { engine: name, slug: 'p1', width, cdp: name === 'chromium' });
-  await runDeck(ctx, base, P2, t, 'part 2', { engine: name, slug: 'p2', width, cdp: name === 'chromium', theme: LILAC });
+  await runDeck(ctx, base, P1, t, 'part 1', { engine: name, slug: 'p1', width, cdp: name === 'chromium', next: [P2, 'Is he worth your time?'] });
+  await runDeck(ctx, base, P2, t, 'part 2', { engine: name, slug: 'p2', width, cdp: name === 'chromium', theme: LILAC, themeName: 'lilac', next: [P3, 'Should you delete his number before November?'] });
+  await runDeck(ctx, base, P3, t, 'part 3', { engine: name, slug: 'p3', width, cdp: name === 'chromium', theme: APRICOT, themeName: 'apricot' });
   const small = await browser.newContext(smallOpts);
   await small.addInitScript(INIT);
   await runIndex(small, base, t, { engine: name, width: smallOpts.viewport.width, tag: 'small', quick: true });
-  for (const [deckPath, label] of [[P1, 'part 1'], [P2, 'part 2']]) {
+  for (const [deckPath, label] of [[P1, 'part 1'], [P2, 'part 2'], [P3, 'part 3']]) {
     await fitWalk(small, base, deckPath, t, label, `${smallOpts.viewport.width}x${smallOpts.viewport.height}`);
     await fitWalk(ctx, base, deckPath, t, label, `${width}x${ctxOpts.viewport.height}`);
   }

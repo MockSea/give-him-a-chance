@@ -6,20 +6,23 @@ A deck of profile cards on Sherita's pink ground. The palette and ink are the re
 
 Each part has its own colour family; the ink and the marker set stay the same across them. Part 1 is the pink. Part 2 is a lilac (`data-theme="lilac"`), same lightness and saturation as the pink so the mood carries over, chosen so the five text colours all clear WCAG AA on the new paper (ink 10.5:1, ink-soft 6.2, blue 5.4, green 5.1, red 4.7; the pink paper's figures are within a few tenths of those).
 
+Part 3 is an apricot (`data-theme="apricot"`), for November. On its paper: ink 12.2:1, ink-soft 6.8, blue 6.3, green 5.9, red 5.4. On its ground, where the dock's labels sit in ink-soft: ink 9.3, ink-soft 5.2, blue 4.8, green 4.5, red 4.2. Every one of those beats the pink and lilac on their own grounds.
+
 ## Tokens
 
 - Pink (default): `--ground #ec8db1`, the page. `--paper #f7acc7` the card. `--paper-under #f09dbd` and `--ground-deep #d9759d` the cards underneath. `--board #f8f9f7` the white rescue card.
 - Lilac (`[data-theme="lilac"]`): `--ground #ba94e6`, `--paper #d4b7f5`, `--paper-under #c7a4ef`, `--ground-deep #a479d5`, `--ink-soft #4f297a`. The shadow tint (`--shade`, an rgb triple) moves with the theme too.
+- Apricot (`[data-theme="apricot"]`): `--ground #f0a874`, `--paper #fbc7a0`, `--paper-under #f6b88a`, `--ground-deep #e0905a`, `--ink-soft #6a2f0c`.
 - `--ink #17111a`, `--ink-soft #7a2a4e` for secondary text. `--blue #1733b8` questions and title, `--green #06552b` yes, `--red #9e0b27` no.
 - Cards: 16px radius, `--card-shadow` (offset 18px, blur 40px, negative spread, plus a tight 2px contact shadow), tinted by `--shade`.
 - Motion: `--ease cubic-bezier(.16,1,.3,1)`, fly-off 420ms, snap-back 320ms.
 
 ## Cards
 
-- Start: title in blue with the last words (the `<em>` in the deck's title) in ink, the lede, a "swipe to start" nudge and the credit line. The credit line opens with the part and the way out: "Part 1 · all parts", "Part 2 · start with part 1 · all parts".
+- Start: title in blue with the last words (the `<em>` in the deck's title) in ink, the lede, a "swipe to start" nudge and the credit line. The credit line opens with the part and the way out: "Part 1 · all parts", "Part 2 · start with part 1 · all parts", "Part 3 · start with part 1 · all parts".
 - Question: one progress mark per main question across the top (done in ink, current in blue), the question in blue display type a little above centre. Rescue cards look the same; when a rescue has a `note`, her aside sits under the question in 17px `--ink-soft`, signed "— Sherita". The longest note still fits at 375x667. No labels above the question.
 - Stamps: YES (green, top left, tilted -16deg) and NOPE (red, top right, tilted 16deg) inside a 4px border, opacity driven by `--yes` and `--no` as the card moves.
-- Result: the verdict in a rubber-stamp box, rotated -4deg, slamming in from 1.8x scale. Green for yes, red for no. A yes throws eight small hearts out of the stamp once. Her quote is the headline under it; Moxy's one-liner follows in smaller, lighter type behind a dashed rule, signed "— Moxy". On part 1's yes, a small blue "Part 2: is he worth your time? →" link follows. Then the tally, a "Change the last answer" link, the credit line, share and restart.
+- Result: the verdict in a rubber-stamp box, rotated -4deg, slamming in from 1.8x scale. Green for yes, red for no. A yes throws eight small hearts out of the stamp once. Her quote is the headline under it; Moxy's one-liner follows in smaller, lighter type behind a dashed rule, signed "— Moxy". On part 1's yes, a small blue "Part 2: is he worth your time? →" link follows, and part 2's yes links on to part 3 the same way. Then the tally, a "Change the last answer" link, the credit line, share and restart.
 
 ## Interaction
 

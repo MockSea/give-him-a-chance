@@ -42,6 +42,7 @@ const TIMES = [...new Set([...Array.from({ length: 44 }, (_, i) => i * 16), 119,
 
 const P1 = 'give-him-a-chance/';
 const P2 = 'worth-your-time/';
+const P3 = 'delete-his-number/';
 const settled = (page) => page.waitForFunction(() =>
   !window.routeBusy && !document.documentElement.classList.contains('leaving') && !window.deckApp?.animating);
 const ready = async (page) => {
@@ -282,7 +283,7 @@ export async function motionFrames(ctx, base, shots, engine, t) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   const capture = (name, action, target) => sample(page, action, name, base + target, shots, engine, t);
-  for (const [part, slug] of [[1, P1], [2, P2]]) {
+  for (const [part, slug] of [[1, P1], [2, P2], [3, P3]]) {
     await page.goto(base);
     const live = await capture(`expand-p${part}`, `.panel:nth-child(${part}) .title a`, slug);
     await capture(`p${part}-browser-back-index`, () => page.goBack(), '');
@@ -488,7 +489,7 @@ export async function navigationEdges(browser, options, base, t, shots, engine) 
     const { png } = await evidence(page, [before, after], ['before', 'instant']);
     fs.writeFileSync(path.join(shots, `${engine}-reduced-${name}-strip.png`), Buffer.from(png, 'base64'));
   };
-  for (const [n, slug] of [[1, P1], [2, P2]]) {
+  for (const [n, slug] of [[1, P1], [2, P2], [3, P3]]) {
     await page.goto(base);
     await instant(`index-p${n}`, `.panel:nth-child(${n}) .title a`, slug);
     await instant(`p${n}-browser-back`, () => page.goBack(), '');

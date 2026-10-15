@@ -43,6 +43,14 @@
   --ink-soft: #4f297a;
   --shade: 50, 15, 90;
 }
+[data-theme="apricot"] {
+  --ground: #f0a874;
+  --ground-deep: #e0905a;
+  --paper: #fbc7a0;
+  --paper-under: #f6b88a;
+  --ink-soft: #6a2f0c;
+  --shade: 110, 50, 15;
+}
 
 *, *::before, *::after { box-sizing: border-box; }
 
